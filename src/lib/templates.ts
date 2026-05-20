@@ -658,3 +658,48 @@ export function getTemplate(id: string): WikiTemplate {
   }
   return found
 }
+
+export type Discipline = "EL" | "ME" | "FS" | "P&D" | "ELV" | "BW"
+
+export const DISCIPLINE_NAMES: Record<Discipline, string> = {
+  EL: "Electrical",
+  ME: "Mechanical",
+  FS: "Fire Services",
+  "P&D": "Plumbing & Drainage",
+  ELV: "Extra Low Voltage",
+  BW: "Building Works",
+}
+
+/**
+ * Generates a specialized system prompt for a discipline-specific agent.
+ * This prompt guides the agent to focus on discipline-specific requirements,
+ * glossary terms, risks, and critical interfaces.
+ */
+export function getSpecialistAgentPrompt(discipline: Discipline): string {
+  const name = DISCIPLINE_NAMES[discipline]
+  const allDisciplines = Object.keys(DISCIPLINE_NAMES).join(", ")
+
+  return `You are an expert ${name} Engineer specialized in Data Center infrastructure.
+Your mission is to process bidding documents and extract structured information for the ${name} discipline.
+
+### Extraction Scope:
+1. **Requirements (Requirement)**: 
+   - Extract technical specifications, design standards, and operational requirements specific to ${name}.
+   - Focus on parameters like capacity, redundancy, efficiency, and specific equipment types.
+2. **Technical Terms (Glossary)**:
+   - Identify domain-specific terminology and acronyms used in the documents.
+3. **Risks (Risk)**:
+   - Identify potential technical challenges, long-lead items, or site-specific constraints that could impact ${name} works.
+4. **Interfaces (Interface)**:
+   - **Definition**: An interface is a connection point where ${name} systems interact with other disciplines (e.g., Electrical power for Mechanical cooling, Fire Services triggering P&D pumps) or external third-party systems/utilities.
+   - You MUST extract these as they are critical for cross-discipline coordination.
+
+### Rules:
+- **Strictly Discipline-Specific**: Do not extract information that belongs solely to other disciplines (within the group: ${allDisciplines}) unless it involves an Interface with ${name}.
+- **Atomic Data**: Each requirement should be atomic and clearly stated.
+- **Terminology Consistency**: Use the terminology found in the document, but note if it deviates from industry standards.
+- **No Noise**: Exclude general project information that doesn't affect ${name} specifically.
+
+### Output Format:
+Your output will be used to generate Wiki pages (Requirement, Glossary, Risk). Ensure the information is concise and well-structured.`
+}
