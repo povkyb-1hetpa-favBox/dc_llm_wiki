@@ -16,6 +16,11 @@ import {
 } from "@/lib/extract-source-images"
 import { captionMarkdownImages, loadCaptionCache } from "@/lib/image-caption-pipeline"
 import type { MultimodalConfig } from "@/stores/wiki-store"
+import {
+  getSpecialistAgentPrompt,
+  DISCIPLINE_NAMES,
+  type Discipline,
+} from "@/lib/templates"
 
 /**
  * Resolve the LLM config that the caption pipeline should use.
@@ -538,6 +543,7 @@ async function autoIngestImpl(
   // key entities, concepts, main arguments, connections to existing wiki, contradictions
   activity.updateItem(activityId, { detail: "Step 1/2: Analyzing source..." })
 
+  const isBiddingProject = schema.includes("# Wiki Schema — Bidding Support")
   let analysis = ""
 
   await streamChat(
@@ -569,51 +575,104 @@ async function autoIngestImpl(
   // LLM takes the analysis as context and produces wiki files + review items
   activity.updateItem(activityId, { detail: "Step 2/2: Generating wiki pages..." })
 
-  let generation = ""
+  async function runGeneration(sys: string, usr: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      let gen = ""
+      streamChat(
+        llmConfig,
+        [
+          { role: "system", content: sys },
+          { role: "user", content: usr },
+        ],
+        {
+          onToken: (token) => {
+            gen += token
+          },
+          onDone: () => resolve(gen),
+          onError: (err) => reject(err),
+        },
+        signal,
+        { temperature: 0.1, reasoning: { mode: "off" }, max_tokens: 8192 },
+      ).catch(reject)
+    })
+  }
 
-  await streamChat(
-    llmConfig,
-    [
-      { role: "system", content: buildGenerationPrompt(schema, purpose, index, fileName, overview, truncatedContent) },
-      {
-        role: "user",
-        content: [
-          `Source document to process: **${fileName}**`,
-          "",
-          "The Stage 1 analysis below is CONTEXT to inform your output. Do NOT echo",
-          "its tables, bullet points, or prose. Your output must be FILE/REVIEW",
-          "blocks as specified in the system prompt — nothing else.",
-          "",
-          "## Stage 1 Analysis (context only — do not repeat)",
-          "",
-          analysis,
-          "",
-          "## Original Source Content",
-          "",
-          truncatedContent,
-          "",
-          "---",
-          "",
-          `Now emit the FILE blocks for the wiki files derived from **${fileName}**.`,
-          "Your response MUST begin with `---FILE:` as the very first characters.",
-          "No preamble. No analysis prose. Start immediately.",
-        ].join("\n"),
-      },
-    ],
-    {
-      onToken: (token) => { generation += token },
-      onDone: () => {},
-      onError: (err) => {
-        activity.updateItem(activityId, { status: "error", detail: `Generation failed: ${err.message}` })
-      },
-    },
-    signal,
-    { temperature: 0.1, reasoning: { mode: "off" }, max_tokens: 8192 },
+  const standardSys = buildGenerationPrompt(
+    schema,
+    purpose,
+    index,
+    fileName,
+    overview,
+    truncatedContent,
   )
+  const standardUsr = [
+    `Source document to process: **${fileName}**`,
+    "",
+    "The Stage 1 analysis below is CONTEXT to inform your output. Do NOT echo",
+    "its tables, bullet points, or prose. Your output must be FILE/REVIEW",
+    "blocks as specified in the system prompt — nothing else.",
+    "",
+    "## Stage 1 Analysis (context only — do not repeat)",
+    "",
+    analysis,
+    "",
+    "## Original Source Content",
+    "",
+    truncatedContent,
+    "",
+    "---",
+    "",
+    `Now emit the FILE blocks for the wiki files derived from **${fileName}**.`,
+    "Your response MUST begin with `---FILE:` as the very first characters.",
+    "No preamble. No analysis prose. Start immediately.",
+  ].join("\n")
 
-  const generationActivity = useActivityStore.getState().items.find((i) => i.id === activityId)
-  if (generationActivity?.status === "error") {
-    throw new Error(generationActivity.detail || "Generation stream failed")
+  const generationPromises: Promise<string>[] = [runGeneration(standardSys, standardUsr)]
+
+  if (isBiddingProject) {
+    const disciplines: Discipline[] = ["EL", "ME", "FS", "P&D", "ELV", "BW"]
+    for (const d of disciplines) {
+      const specSys = buildSpecialistGenerationPrompt(
+        d,
+        schema,
+        purpose,
+        index,
+        fileName,
+        overview,
+        truncatedContent,
+      )
+      const specUsr = [
+        `Source document to process: **${fileName}**`,
+        "",
+        `You are the specialist agent for **${DISCIPLINE_NAMES[d]}**.`,
+        "The Stage 1 analysis below is CONTEXT. Your output must be FILE/REVIEW",
+        "blocks for requirements, glossary terms, and risks SPECIFIC to your discipline.",
+        "",
+        "## Stage 1 Analysis",
+        "",
+        analysis,
+        "",
+        "## Original Source Content",
+        "",
+        truncatedContent,
+        "",
+        "---",
+        "",
+        `Now emit the FILE blocks for the wiki files derived from **${fileName}**.`,
+        "Your response MUST begin with `---FILE:` as the very first characters.",
+      ].join("\n")
+      generationPromises.push(runGeneration(specSys, specUsr))
+    }
+  }
+
+  let generation = ""
+  try {
+    const results = await Promise.all(generationPromises)
+    generation = results.join("\n\n")
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    activity.updateItem(activityId, { status: "error", detail: `Generation failed: ${msg}` })
+    throw err
   }
 
   // ── Step 3: Write files ───────────────────────────────────────
@@ -1021,6 +1080,40 @@ export function buildAnalysisPrompt(purpose: string, index: string, sourceConten
     purpose ? `## Wiki Purpose (for context)\n${purpose}` : "",
     index ? `## Current Wiki Index (for checking existing content)\n${index}` : "",
   ].filter(Boolean).join("\n")
+}
+
+/**
+ * Step 2 prompt for specialist agents: identical to buildGenerationPrompt but
+ * with discipline-specific instructions injected at the top.
+ */
+export function buildSpecialistGenerationPrompt(
+  discipline: Discipline,
+  schema: string,
+  purpose: string,
+  index: string,
+  sourceFileName: string,
+  overview?: string,
+  sourceContent: string = "",
+): string {
+  const basePrompt = buildGenerationPrompt(
+    schema,
+    purpose,
+    index,
+    sourceFileName,
+    overview,
+    sourceContent,
+  )
+  const specialistInstructions = getSpecialistAgentPrompt(discipline)
+
+  return [
+    `# SPECIALIST AGENT ROLE: ${DISCIPLINE_NAMES[discipline]}`,
+    "",
+    specialistInstructions,
+    "",
+    "---",
+    "",
+    basePrompt,
+  ].join("\n")
 }
 
 /**
