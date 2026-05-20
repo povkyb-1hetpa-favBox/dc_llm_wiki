@@ -6,6 +6,16 @@ export interface WikiProject {
   path: string
 }
 
+export interface WikiTemplate {
+  id: string
+  name: string
+  description: string
+  icon: string
+  schema: string
+  purpose: string
+  extraDirs: string[]
+}
+
 export interface FileNode {
   name: string
   path: string

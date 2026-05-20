@@ -1,12 +1,6 @@
-export interface WikiTemplate {
-  id: string
-  name: string
-  description: string
-  icon: string
-  schema: string
-  purpose: string
-  extraDirs: string[]
-}
+import { WikiTemplate } from "@/types/wiki"
+import biddingPurpose from "./templates/bidding-purpose.md?raw"
+import biddingSchema from "./templates/bidding-schema.md?raw"
 
 const BASE_SCHEMA_TYPES = `| entity | wiki/entities/ | Named things (people, tools, organizations, datasets) |
 | concept | wiki/concepts/ | Ideas, techniques, phenomena, frameworks |
@@ -637,12 +631,24 @@ ${BASE_CONTRADICTION}
 `,
 }
 
+const biddingTemplate: WikiTemplate = {
+  id: "bidding",
+  name: "Bidding Support",
+  description:
+    "Analyze bidding documents, align multi-discipline requirements, and track risks",
+  icon: "⚖️",
+  extraDirs: ["wiki/requirements", "wiki/glossary", "wiki/clarifications", "wiki/risks"],
+  schema: biddingSchema,
+  purpose: biddingPurpose,
+}
+
 export const templates: WikiTemplate[] = [
   researchTemplate,
   readingTemplate,
   personalTemplate,
   businessTemplate,
   generalTemplate,
+  biddingTemplate,
 ]
 
 export function getTemplate(id: string): WikiTemplate {
