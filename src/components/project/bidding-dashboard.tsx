@@ -22,7 +22,7 @@ const REPORTS = [
 ]
 
 export function BiddingDashboard() {
-  const { t } = useTranslation()
+  useTranslation()
   const project = useWikiStore((s) => s.project)
   const setSelectedFile = useWikiStore((s) => s.setSelectedFile)
   const setActiveView = useWikiStore((s) => s.setActiveView)
