@@ -1,6 +1,15 @@
 import { useState, useEffect } from "react"
 import {
-  FileText, FolderOpen, Search, Network, ClipboardCheck, Settings, ArrowLeftRight, ClipboardList, Globe,
+  FileText,
+  FolderOpen,
+  Search,
+  Network,
+  ClipboardCheck,
+  Settings,
+  ArrowLeftRight,
+  ClipboardList,
+  Globe,
+  LayoutDashboard,
 } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -30,9 +39,12 @@ export function IconSidebar({ onSwitchProject }: IconSidebarProps) {
   const { t } = useTranslation()
   const activeView = useWikiStore((s) => s.activeView)
   const setActiveView = useWikiStore((s) => s.setActiveView)
+  const isBidding = useWikiStore((s) => s.isBidding)
   const pendingCount = useReviewStore((s) => s.items.filter((i) => !i.resolved).length)
   const researchPanelOpen = useResearchStore((s) => s.panelOpen)
-  const researchActiveCount = useResearchStore((s) => s.tasks.filter((t) => t.status !== "done" && t.status !== "error").length)
+  const researchActiveCount = useResearchStore(
+    (s) => s.tasks.filter((t) => t.status !== "done" && t.status !== "error").length,
+  )
   const toggleResearchPanel = useResearchStore((s) => s.setPanelOpen)
   // Use `hasAvailableUpdate` (ignores dismiss state) rather than
   // `shouldShowUpdateBanner`. The dot is a passive signpost — it
@@ -65,14 +77,25 @@ export function IconSidebar({ onSwitchProject }: IconSidebarProps) {
       <div className="flex h-full w-12 flex-col items-center border-r bg-muted/50 py-2">
         {/* Logo */}
         <div className="mb-2 flex items-center justify-center">
-          <img
-            src={logoImg}
-            alt="LLM Wiki"
-            className="h-8 w-8 rounded-[22%]"
-          />
+          <img src={logoImg} alt="LLM Wiki" className="h-8 w-8 rounded-[22%]" />
         </div>
         {/* Top: main nav items + Deep Research */}
         <div className="flex flex-1 flex-col items-center gap-1">
+          {isBidding && (
+            <Tooltip>
+              <TooltipTrigger
+                onClick={() => setActiveView("bidding")}
+                className={`relative flex h-10 w-10 items-center justify-center rounded-md transition-colors ${
+                  activeView === "bidding"
+                    ? "bg-accent text-accent-foreground"
+                    : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"
+                }`}
+              >
+                <LayoutDashboard className="h-5 w-5" />
+              </TooltipTrigger>
+              <TooltipContent side="right">投标看板</TooltipContent>
+            </Tooltip>
+          )}
           {NAV_ITEMS.map(({ view, icon: Icon, labelKey }) => (
             <Tooltip key={view}>
               <TooltipTrigger
@@ -123,17 +146,21 @@ export function IconSidebar({ onSwitchProject }: IconSidebarProps) {
             <TooltipTrigger className="flex h-6 w-6 items-center justify-center">
               <span
                 className={`h-2.5 w-2.5 rounded-full ${
-                  daemonStatus === "running" ? "bg-emerald-500" :
-                  daemonStatus === "starting" ? "bg-amber-400 animate-pulse" :
-                  daemonStatus === "port_conflict" ? "bg-red-500" :
-                  "bg-red-500 animate-pulse"
+                  daemonStatus === "running"
+                    ? "bg-emerald-500"
+                    : daemonStatus === "starting"
+                      ? "bg-amber-400 animate-pulse"
+                      : daemonStatus === "port_conflict"
+                        ? "bg-red-500"
+                        : "bg-red-500 animate-pulse"
                 }`}
               />
             </TooltipTrigger>
             <TooltipContent side="right">
               {daemonStatus === "running" && "Clip server running"}
               {daemonStatus === "starting" && "Clip server starting..."}
-              {daemonStatus === "port_conflict" && "Port 19827 is occupied. Web Clipper unavailable."}
+              {daemonStatus === "port_conflict" &&
+                "Port 19827 is occupied. Web Clipper unavailable."}
               {daemonStatus === "error" && "Clip server error. Restarting..."}
             </TooltipContent>
           </Tooltip>

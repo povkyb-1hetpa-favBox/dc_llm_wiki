@@ -83,12 +83,11 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
     []
   )
 
-  // Settings is a full-width admin view — the file tree / activity panel
-  // are irrelevant there and their narrow column makes the settings form
-  // cramped. Hide both the left sidebar (and the file preview on the
-  // right) so the settings screen uses the whole content area.
-  const isSettings = activeView === "settings"
-  const hasRightPanel = !isSettings && !!(selectedFile || researchPanelOpen)
+  // Settings and Bidding Dashboard are full-width views — the file tree / activity panel
+  // are irrelevant there and their narrow column makes the forms/dashboard cramped.
+  // Hide both the left sidebar (and the file preview on the right) so they use the whole area.
+  const isFullWidth = activeView === "settings" || activeView === "bidding"
+  const hasRightPanel = !isFullWidth && !!(selectedFile || researchPanelOpen)
 
   return (
     // Outer column layout: full-width update banner on top (when an
@@ -101,24 +100,24 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
       <div className="flex min-h-0 flex-1">
         <IconSidebar onSwitchProject={onSwitchProject} />
         <div ref={containerRef} className="flex min-w-0 flex-1 overflow-hidden">
-        {!isSettings && (
-          <>
-            {/* Left: File tree + Activity */}
-            <div
-              className="flex shrink-0 flex-col overflow-hidden border-r"
-              style={{ width: leftWidth }}
-            >
-              <div className="flex-1 overflow-hidden">
-                <SidebarPanel />
+          {!isFullWidth && (
+            <>
+              {/* Left: File tree + Activity */}
+              <div
+                className="flex shrink-0 flex-col overflow-hidden border-r"
+                style={{ width: leftWidth }}
+              >
+                <div className="flex-1 overflow-hidden">
+                  <SidebarPanel />
+                </div>
+                <ActivityPanel />
               </div>
-              <ActivityPanel />
-            </div>
-            <div
-              className="w-1.5 shrink-0 cursor-col-resize bg-border/40 transition-colors hover:bg-primary/30 active:bg-primary/40"
-              onMouseDown={startDrag("left")}
-            />
-          </>
-        )}
+              <div
+                className="w-1.5 shrink-0 cursor-col-resize bg-border/40 transition-colors hover:bg-primary/30 active:bg-primary/40"
+                onMouseDown={startDrag("left")}
+              />
+            </>
+          )}
 
         {/* Center: Chat or view (sources/settings/review) */}
         <div className="min-w-0 flex-1 overflow-hidden">
