@@ -27,6 +27,7 @@ import type { FileNode } from "@/types/wiki"
 import { normalizePath } from "@/lib/path-utils"
 import { getHttpFetch, isFetchNetworkError } from "@/lib/tauri-fetch"
 import { chunkMarkdown, type Chunk } from "@/lib/text-chunker"
+import { localEmbeddingManager } from "./local-embedding-manager"
 
 // ── Error surfacing ──────────────────────────────────────────────────────
 
@@ -82,6 +83,21 @@ export async function fetchEmbedding(
   cfg: EmbeddingConfig,
   maxRetries = 3,
 ): Promise<number[] | null> {
+  // Local-only path: use transformers.js instead of fetch
+  if (cfg.provider === "local") {
+    try {
+      const vec = await localEmbeddingManager.computeEmbedding(text, cfg.localModel)
+      if (vec) {
+        lastEmbeddingError = null
+        return vec
+      }
+      return null
+    } catch (err) {
+      lastEmbeddingError = `Local embedding failed: ${err instanceof Error ? err.message : String(err)}`
+      return null
+    }
+  }
+
   if (!cfg.endpoint) return null
 
   const isGoogleNative = isGoogleEmbeddingConfig(cfg)
@@ -353,6 +369,7 @@ export async function embedPage(
 
   const t0 = performance.now()
   const chunks = chunkMarkdown(content, {
+    strategy: cfg.chunkingStrategy ?? "recursive",
     targetChars: cfg.maxChunkChars ?? 1000,
     overlapChars: cfg.overlapChunkChars ?? 200,
   })
@@ -360,9 +377,23 @@ export async function embedPage(
 
   const rows: ChunkUpsertInput[] = []
   let failedChunks = 0
-  for (const chunk of chunks) {
-    const embedText = enrichChunkForEmbedding(title, chunk)
-    const vec = await fetchEmbedding(embedText, cfg)
+
+  // Parallelize embedding requests with a concurrency limit.
+  // Many embedding APIs (OpenAI, Gemini, Ollama) handle high concurrency
+  // much better than serial requests.
+  const CONCURRENCY_LIMIT = 5
+  const results = await Promise.all(
+    chunks.map(async (chunk, i) => {
+      // Small offset to prevent hitting the exact same microsecond on some rate limiters
+      await new Promise((resolve) => setTimeout(resolve, Math.floor(i / CONCURRENCY_LIMIT) * 10))
+
+      const embedText = enrichChunkForEmbedding(title, chunk)
+      const vec = await fetchEmbedding(embedText, cfg)
+      return { chunk, vec }
+    })
+  )
+
+  for (const { chunk, vec } of results) {
     if (vec) {
       rows.push({
         chunkIndex: chunk.index,
@@ -374,6 +405,7 @@ export async function embedPage(
       failedChunks++
     }
   }
+
 
   if (rows.length === 0) {
     console.log(

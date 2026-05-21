@@ -21,6 +21,7 @@ import {
   DISCIPLINE_NAMES,
   type Discipline,
 } from "@/lib/templates"
+import { loadProjectPrompt, resolvePromptPlaceholders } from "./prompt-loader"
 
 /**
  * Resolve the LLM config that the caption pipeline should use.
@@ -546,17 +547,36 @@ async function autoIngestImpl(
   const isBiddingProject = schema.includes("# Wiki Schema — Bidding Support")
   let analysis = ""
 
+  // Load custom prompts from the project config
+  const customAnalysisPrompt = await loadProjectPrompt(pp, "analysis-stage-1")
+
   await streamChat(
     llmConfig,
     [
-      { role: "system", content: buildAnalysisPrompt(purpose, index, truncatedContent) },
-      { role: "user", content: `Analyze this source document:\n\n**File:** ${fileName}${folderContext ? `\n**Folder context:** ${folderContext}` : ""}\n\n---\n\n${truncatedContent}` },
+      {
+        role: "system",
+        content: buildAnalysisPrompt(
+          purpose,
+          index,
+          truncatedContent,
+          customAnalysisPrompt,
+        ),
+      },
+      {
+        role: "user",
+        content: `Analyze this source document:\n\n**File:** ${fileName}${folderContext ? `\n**Folder context:** ${folderContext}` : ""}\n\n---\n\n${truncatedContent}`,
+      },
     ],
     {
-      onToken: (token) => { analysis += token },
+      onToken: (token) => {
+        analysis += token
+      },
       onDone: () => {},
       onError: (err) => {
-        activity.updateItem(activityId, { status: "error", detail: `Analysis failed: ${err.message}` })
+        activity.updateItem(activityId, {
+          status: "error",
+          detail: `Analysis failed: ${err.message}`,
+        })
       },
     },
     signal,
@@ -566,7 +586,9 @@ async function autoIngestImpl(
   // A silent `return []` here would look like success to the queue
   // runner and cause the task to be filter()'d out. Throw instead so
   // processNext's catch-block path (retry / mark failed) engages.
-  const analysisActivity = useActivityStore.getState().items.find((i) => i.id === activityId)
+  const analysisActivity = useActivityStore
+    .getState()
+    .items.find((i) => i.id === activityId)
   if (analysisActivity?.status === "error") {
     throw new Error(analysisActivity.detail || "Analysis stream failed")
   }
@@ -574,6 +596,10 @@ async function autoIngestImpl(
   // ── Step 2: Generation ────────────────────────────────────────
   // LLM takes the analysis as context and produces wiki files + review items
   activity.updateItem(activityId, { detail: "Step 2/2: Generating wiki pages..." })
+
+  // Load custom prompts for generation
+  const customGenPrompt = await loadProjectPrompt(pp, "generation-stage-2")
+  const customSpecialistPrompt = await loadProjectPrompt(pp, "specialist-agent")
 
   async function runGeneration(sys: string, usr: string): Promise<string> {
     return new Promise((resolve, reject) => {
@@ -604,6 +630,7 @@ async function autoIngestImpl(
     fileName,
     overview,
     truncatedContent,
+    customGenPrompt,
   )
   const standardUsr = [
     `Source document to process: **${fileName}**`,
@@ -630,8 +657,42 @@ async function autoIngestImpl(
   const generationPromises: Promise<string>[] = [runGeneration(standardSys, standardUsr)]
 
   if (isBiddingProject) {
-    const disciplines: Discipline[] = ["EL", "ME", "FS", "P&D", "ELV", "BW"]
-    for (const d of disciplines) {
+    // ── Smart Specialist Dispatch ───────────────────────────────
+    // Parse the disciplines identified in Stage 1.
+    // Format expected: "INVOLVED_DISCIPLINES: [EL, ME]"
+    const disciplineMatch = analysis.match(/INVOLVED_DISCIPLINES:\s*\[(.*?)\]/i)
+    let activeDisciplines: Discipline[] = []
+
+    if (disciplineMatch) {
+      const rawList = disciplineMatch[1]
+        .split(",")
+        .map((s) => s.trim().toUpperCase())
+        .filter(Boolean)
+
+      // Validate against known codes
+      const validCodes = new Set(["EL", "ME", "FS", "P&D", "ELV", "BW"])
+      activeDisciplines = rawList.filter((code) =>
+        validCodes.has(code),
+      ) as Discipline[]
+
+      if (activeDisciplines.length > 0) {
+        console.log(
+          `[ingest:smart-dispatch] Identified disciplines for "${fileName}": ${activeDisciplines.join(", ")}`,
+        )
+      } else {
+        console.log(
+          `[ingest:smart-dispatch] No technical disciplines identified for "${fileName}". Skipping specialists.`,
+        )
+      }
+    } else {
+      // Fallback: if parsing fails in a bidding project, run all to be safe.
+      console.warn(
+        `[ingest:smart-dispatch] Could not parse disciplines from analysis of "${fileName}". Falling back to all specialists.`,
+      )
+      activeDisciplines = ["EL", "ME", "FS", "P&D", "ELV", "BW"]
+    }
+
+    for (const d of activeDisciplines) {
       const specSys = buildSpecialistGenerationPrompt(
         d,
         schema,
@@ -640,6 +701,8 @@ async function autoIngestImpl(
         fileName,
         overview,
         truncatedContent,
+        customGenPrompt,
+        customSpecialistPrompt,
       )
       const specUsr = [
         `Source document to process: **${fileName}**`,
@@ -781,18 +844,28 @@ async function autoIngestImpl(
   if (embCfg.enabled && embCfg.model && writtenPaths.length > 0) {
     try {
       const { embedPage } = await import("@/lib/embedding")
+      const embeddingPromises: Promise<void>[] = []
+
       for (const wpath of writtenPaths) {
         const pageId = wpath.split("/").pop()?.replace(/\.md$/, "") ?? ""
         if (!pageId || ["index", "log", "overview"].includes(pageId)) continue
-        try {
-          const content = await readFile(`${pp}/${wpath}`)
-          const titleMatch = content.match(/^---\n[\s\S]*?^title:\s*["']?(.+?)["']?\s*$/m)
-          const title = titleMatch ? titleMatch[1].trim() : pageId
-          await embedPage(pp, pageId, title, content, embCfg)
-        } catch {
-          // non-critical
-        }
+
+        embeddingPromises.push(
+          (async () => {
+            try {
+              const content = await readFile(`${pp}/${wpath}`)
+              const titleMatch = content.match(
+                /^---\n[\s\S]*?^title:\s*["']?(.+?)["']?\s*$/m,
+              )
+              const title = titleMatch ? titleMatch[1].trim() : pageId
+              await embedPage(pp, pageId, title, content, embCfg)
+            } catch {
+              // non-critical
+            }
+          })(),
+        )
       }
+      await Promise.all(embeddingPromises)
     } catch {
       // embedding module not available
     }
@@ -1034,52 +1107,64 @@ function parseReviewBlocks(
  * Step 1 prompt: AI reads the source and produces a structured analysis.
  * This is the "discussion" step — the AI reasons about the source before writing wiki pages.
  */
-export function buildAnalysisPrompt(purpose: string, index: string, sourceContent: string = ""): string {
+export function buildAnalysisPrompt(
+  purpose: string,
+  index: string,
+  sourceContent: string = "",
+  customTemplate?: string,
+): string {
+  const base =
+    customTemplate ||
+    [
+      "You are an expert research analyst. Read the source document and produce a structured analysis.",
+      "Do not output chain-of-thought, hidden reasoning, or a thinking transcript. Reason internally and write only the concise final analysis.",
+      "",
+      "Your analysis should cover:",
+      "",
+      "## Key Entities",
+      "List people, organizations, products, datasets, tools mentioned. For each:",
+      "- Name and type",
+      "- Role in the source (central vs. peripheral)",
+      "- Whether it likely already exists in the wiki (check the index)",
+      "",
+      "## Key Concepts",
+      "List theories, methods, techniques, phenomena. For each:",
+      "- Name and brief definition",
+      "- Why it matters in this source",
+      "- Whether it likely already exists in the wiki",
+      "",
+      "## Main Arguments & Findings",
+      "- What are the core claims or results?",
+      "- What evidence supports them?",
+      "- How strong is the evidence?",
+      "",
+      "## Connections to Existing Wiki",
+      "- What existing pages does this source relate to?",
+      "- Does it strengthen, challenge, or extend existing knowledge?",
+      "",
+      "## Contradictions & Tensions",
+      "- Does anything in this source conflict with existing wiki content?",
+      "- Are there internal tensions or caveats?",
+      "",
+      "## Recommendations",
+      "- What wiki pages should be created or updated?",
+      "- What should be emphasized vs. de-emphasized?",
+      "- Any open questions worth flagging for the user?",
+      "",
+      "Be thorough but concise. Focus on what's genuinely important.",
+      "",
+      "If a folder context is provided, use it as a hint for categorization — the folder structure often reflects the user's organizational intent (e.g., 'papers/energy' suggests the file is an energy-related paper).",
+    ].join("\n")
+
   return [
-    "You are an expert research analyst. Read the source document and produce a structured analysis.",
-    "Do not output chain-of-thought, hidden reasoning, or a thinking transcript. Reason internally and write only the concise final analysis.",
+    base,
     "",
     languageRule(sourceContent),
-    "",
-    "Your analysis should cover:",
-    "",
-    "## Key Entities",
-    "List people, organizations, products, datasets, tools mentioned. For each:",
-    "- Name and type",
-    "- Role in the source (central vs. peripheral)",
-    "- Whether it likely already exists in the wiki (check the index)",
-    "",
-    "## Key Concepts",
-    "List theories, methods, techniques, phenomena. For each:",
-    "- Name and brief definition",
-    "- Why it matters in this source",
-    "- Whether it likely already exists in the wiki",
-    "",
-    "## Main Arguments & Findings",
-    "- What are the core claims or results?",
-    "- What evidence supports them?",
-    "- How strong is the evidence?",
-    "",
-    "## Connections to Existing Wiki",
-    "- What existing pages does this source relate to?",
-    "- Does it strengthen, challenge, or extend existing knowledge?",
-    "",
-    "## Contradictions & Tensions",
-    "- Does anything in this source conflict with existing wiki content?",
-    "- Are there internal tensions or caveats?",
-    "",
-    "## Recommendations",
-    "- What wiki pages should be created or updated?",
-    "- What should be emphasized vs. de-emphasized?",
-    "- Any open questions worth flagging for the user?",
-    "",
-    "Be thorough but concise. Focus on what's genuinely important.",
-    "",
-    "If a folder context is provided, use it as a hint for categorization — the folder structure often reflects the user's organizational intent (e.g., 'papers/energy' suggests the file is an energy-related paper).",
-    "",
     purpose ? `## Wiki Purpose (for context)\n${purpose}` : "",
     index ? `## Current Wiki Index (for checking existing content)\n${index}` : "",
-  ].filter(Boolean).join("\n")
+  ]
+    .filter(Boolean)
+    .join("\n\n")
 }
 
 /**
@@ -1094,6 +1179,8 @@ export function buildSpecialistGenerationPrompt(
   sourceFileName: string,
   overview?: string,
   sourceContent: string = "",
+  customGenTemplate?: string,
+  customSpecialistTemplate?: string,
 ): string {
   const basePrompt = buildGenerationPrompt(
     schema,
@@ -1102,8 +1189,16 @@ export function buildSpecialistGenerationPrompt(
     sourceFileName,
     overview,
     sourceContent,
+    customGenTemplate,
   )
-  const specialistInstructions = getSpecialistAgentPrompt(discipline)
+
+  const specialistInstructions = resolvePromptPlaceholders(
+    customSpecialistTemplate || getSpecialistAgentPrompt(discipline),
+    {
+      discipline,
+      allDisciplines: Object.keys(DISCIPLINE_NAMES),
+    },
+  )
 
   return [
     `# SPECIALIST AGENT ROLE: ${DISCIPLINE_NAMES[discipline]}`,
@@ -1119,101 +1214,115 @@ export function buildSpecialistGenerationPrompt(
 /**
  * Step 2 prompt: AI takes its own analysis and generates wiki files + review items.
  */
-export function buildGenerationPrompt(schema: string, purpose: string, index: string, sourceFileName: string, overview?: string, sourceContent: string = ""): string {
+export function buildGenerationPrompt(
+  schema: string,
+  purpose: string,
+  index: string,
+  sourceFileName: string,
+  overview?: string,
+  sourceContent: string = "",
+  customTemplate?: string,
+): string {
   // Use original filename (without extension) as the source summary page name
   const sourceBaseName = sourceFileName.replace(/\.[^.]+$/, "")
 
+  const base =
+    customTemplate ||
+    [
+      "You are a wiki maintainer. Based on the analysis provided, generate wiki files.",
+      "Do not output chain-of-thought, hidden reasoning, or explanatory preamble. Reason internally and output only the requested FILE/REVIEW blocks.",
+      "",
+      `## IMPORTANT: Source File`,
+      `The original source file is: **${sourceFileName}**`,
+      `All wiki pages generated from this source MUST include this filename in their frontmatter \`sources\` field.`,
+      "",
+      "## What to generate",
+      "",
+      `1. A source summary page at **wiki/sources/${sourceBaseName}.md** (MUST use this exact path)`,
+      "2. Entity pages in wiki/entities/ for key entities identified in the analysis",
+      "3. Concept pages in wiki/concepts/ for key concepts identified in the analysis",
+      "4. An updated wiki/index.md — add new entries to existing categories, preserve all existing entries",
+      "5. A log entry for wiki/log.md (just the new entry to append, format: ## [YYYY-MM-DD] ingest | Title)",
+      "6. An updated wiki/overview.md — a high-level summary of what the entire wiki covers, updated to reflect the newly ingested source. This should be a comprehensive 2-5 paragraph overview of ALL topics in the wiki, not just the new source.",
+      "",
+      "## Frontmatter Rules (CRITICAL — parser is strict)",
+      "",
+      "Every page begins with a YAML frontmatter block. Format rules, in order of importance:",
+      "",
+      "1. The VERY FIRST line of the file MUST be exactly `---` (three hyphens, nothing else).",
+      "   Do NOT wrap the file in a ```yaml ... ``` code fence.",
+      "   Do NOT prefix it with a `frontmatter:` key or any other line.",
+      "2. Each frontmatter line is a `key: value` pair on its own line.",
+      "3. The frontmatter ends with another `---` line on its own.",
+      "4. The next line after the closing `---` is the start of the page body.",
+      "5. Arrays use the standard YAML inline form `[a, b, c]` (no outer brackets around each item).",
+      "   Wikilinks belong in the BODY only — never write `related: [[a]], [[b]]` (invalid YAML);",
+      "   write `related: [a, b]` with bare slugs.",
+      "",
+      "Required fields and types:",
+      "  • type     — one of: source | entity | concept | comparison | query | synthesis",
+      "  • title    — string (quote it if it contains a colon, e.g. `title: \"Foo: Bar\"`)",
+      "  • created  — date in YYYY-MM-DD form (no quotes)",
+      "  • updated  — same as created",
+      "  • tags     — array of bare strings: `tags: [microbiology, ai]`",
+      "  • related  — array of bare wiki page slugs: `related: [foo, bar-baz]`. Do NOT include",
+      "               `wiki/`, `.md`, or `[[…]]` here — slugs only.",
+      `  • sources  — array of source filenames; MUST include "${sourceFileName}".`,
+      "",
+      "Concrete example of a complete, parseable page (everything between the two `---` lines",
+      "is the frontmatter; the heading and prose below are the body):",
+      "",
+      "    ---",
+      "    type: entity",
+      "    title: Example Entity",
+      "    created: 2026-04-29",
+      "    updated: 2026-04-29",
+      "    tags: [example, demo]",
+      "    related: [related-slug-1, related-slug-2]",
+      `    sources: ["${sourceFileName}"]`,
+      "    ---",
+      "",
+      "    # Example Entity",
+      "",
+      "    Body content goes here. Use [[wikilink]] syntax in the body for cross-references.",
+      "",
+      "Other rules:",
+      "- Use [[wikilink]] syntax in the BODY for cross-references between pages",
+      "- Use kebab-case filenames",
+      "- Follow the analysis recommendations on what to emphasize",
+      "- If the analysis found connections to existing pages, add cross-references",
+      "",
+      "## Review block types",
+      "",
+      "After all FILE blocks, optionally emit REVIEW blocks for anything that needs human judgment:",
+      "",
+      "- contradiction: the analysis found conflicts with existing wiki content",
+      "- duplicate: an entity/concept might already exist under a different name in the index",
+      "- missing-page: an important concept is referenced but has no dedicated page",
+      "- suggestion: ideas for further research, related sources to look for, or connections worth exploring",
+      "",
+      "Only create reviews for things that genuinely need human input. Don't create trivial reviews.",
+      "",
+      "## OPTIONS allowed values (only these predefined labels):",
+      "",
+      "- contradiction: OPTIONS: Create Page | Skip",
+      "- duplicate: OPTIONS: Create Page | Skip",
+      "- missing-page: OPTIONS: Create Page | Skip",
+      "- suggestion: OPTIONS: Create Page | Skip",
+      "",
+      "The user also has a 'Deep Research' button (auto-added by the system) that triggers web search.",
+      "Do NOT invent custom option labels. Only use 'Create Page' and 'Skip'.",
+      "",
+      "For suggestion and missing-page reviews, the SEARCH field must contain 2-3 web search queries",
+      "(keyword-rich, specific, suitable for a search engine — NOT titles or sentences). Example:",
+      "  SEARCH: automated technical debt detection AI generated code | software quality metrics LLM code generation | static analysis tools agentic software development",
+      "",
+    ].join("\n")
+
   return [
-    "You are a wiki maintainer. Based on the analysis provided, generate wiki files.",
-    "Do not output chain-of-thought, hidden reasoning, or explanatory preamble. Reason internally and output only the requested FILE/REVIEW blocks.",
+    base,
     "",
     languageRule(sourceContent),
-    "",
-    `## IMPORTANT: Source File`,
-    `The original source file is: **${sourceFileName}**`,
-    `All wiki pages generated from this source MUST include this filename in their frontmatter \`sources\` field.`,
-    "",
-    "## What to generate",
-    "",
-    `1. A source summary page at **wiki/sources/${sourceBaseName}.md** (MUST use this exact path)`,
-    "2. Entity pages in wiki/entities/ for key entities identified in the analysis",
-    "3. Concept pages in wiki/concepts/ for key concepts identified in the analysis",
-    "4. An updated wiki/index.md — add new entries to existing categories, preserve all existing entries",
-    "5. A log entry for wiki/log.md (just the new entry to append, format: ## [YYYY-MM-DD] ingest | Title)",
-    "6. An updated wiki/overview.md — a high-level summary of what the entire wiki covers, updated to reflect the newly ingested source. This should be a comprehensive 2-5 paragraph overview of ALL topics in the wiki, not just the new source.",
-    "",
-    "## Frontmatter Rules (CRITICAL — parser is strict)",
-    "",
-    "Every page begins with a YAML frontmatter block. Format rules, in order of importance:",
-    "",
-    "1. The VERY FIRST line of the file MUST be exactly `---` (three hyphens, nothing else).",
-    "   Do NOT wrap the file in a ```yaml ... ``` code fence.",
-    "   Do NOT prefix it with a `frontmatter:` key or any other line.",
-    "2. Each frontmatter line is a `key: value` pair on its own line.",
-    "3. The frontmatter ends with another `---` line on its own.",
-    "4. The next line after the closing `---` is the start of the page body.",
-    "5. Arrays use the standard YAML inline form `[a, b, c]` (no outer brackets around each item).",
-    "   Wikilinks belong in the BODY only — never write `related: [[a]], [[b]]` (invalid YAML);",
-    "   write `related: [a, b]` with bare slugs.",
-    "",
-    "Required fields and types:",
-    "  • type     — one of: source | entity | concept | comparison | query | synthesis",
-    "  • title    — string (quote it if it contains a colon, e.g. `title: \"Foo: Bar\"`)",
-    "  • created  — date in YYYY-MM-DD form (no quotes)",
-    "  • updated  — same as created",
-    "  • tags     — array of bare strings: `tags: [microbiology, ai]`",
-    "  • related  — array of bare wiki page slugs: `related: [foo, bar-baz]`. Do NOT include",
-    "               `wiki/`, `.md`, or `[[…]]` here — slugs only.",
-    `  • sources  — array of source filenames; MUST include "${sourceFileName}".`,
-    "",
-    "Concrete example of a complete, parseable page (everything between the two `---` lines",
-    "is the frontmatter; the heading and prose below are the body):",
-    "",
-    "    ---",
-    "    type: entity",
-    "    title: Example Entity",
-    "    created: 2026-04-29",
-    "    updated: 2026-04-29",
-    "    tags: [example, demo]",
-    "    related: [related-slug-1, related-slug-2]",
-    `    sources: ["${sourceFileName}"]`,
-    "    ---",
-    "",
-    "    # Example Entity",
-    "",
-    "    Body content goes here. Use [[wikilink]] syntax in the body for cross-references.",
-    "",
-    "Other rules:",
-    "- Use [[wikilink]] syntax in the BODY for cross-references between pages",
-    "- Use kebab-case filenames",
-    "- Follow the analysis recommendations on what to emphasize",
-    "- If the analysis found connections to existing pages, add cross-references",
-    "",
-    "## Review block types",
-    "",
-    "After all FILE blocks, optionally emit REVIEW blocks for anything that needs human judgment:",
-    "",
-    "- contradiction: the analysis found conflicts with existing wiki content",
-    "- duplicate: an entity/concept might already exist under a different name in the index",
-    "- missing-page: an important concept is referenced but has no dedicated page",
-    "- suggestion: ideas for further research, related sources to look for, or connections worth exploring",
-    "",
-    "Only create reviews for things that genuinely need human input. Don't create trivial reviews.",
-    "",
-    "## OPTIONS allowed values (only these predefined labels):",
-    "",
-    "- contradiction: OPTIONS: Create Page | Skip",
-    "- duplicate: OPTIONS: Create Page | Skip",
-    "- missing-page: OPTIONS: Create Page | Skip",
-    "- suggestion: OPTIONS: Create Page | Skip",
-    "",
-    "The user also has a 'Deep Research' button (auto-added by the system) that triggers web search.",
-    "Do NOT invent custom option labels. Only use 'Create Page' and 'Skip'.",
-    "",
-    "For suggestion and missing-page reviews, the SEARCH field must contain 2-3 web search queries",
-    "(keyword-rich, specific, suitable for a search engine — NOT titles or sentences). Example:",
-    "  SEARCH: automated technical debt detection AI generated code | software quality metrics LLM code generation | static analysis tools agentic software development",
-    "",
     purpose ? `## Wiki Purpose\n${purpose}` : "",
     schema ? `## Wiki Schema\n${schema}` : "",
     index ? `## Current Wiki Index (preserve all existing entries, add new ones)\n${index}` : "",
@@ -1259,7 +1368,9 @@ export function buildGenerationPrompt(schema: string, purpose: string, index: st
     "---",
     "",
     languageRule(sourceContent),
-  ].filter(Boolean).join("\n")
+  ]
+    .filter(Boolean)
+    .join("\n")
 }
 
 function getStore() {
@@ -1656,35 +1767,24 @@ export async function executeIngestWrites(
     signal,
   )
 
-  const writtenPaths: string[] = []
-  const matches = accumulated.matchAll(FILE_BLOCK_REGEX)
+  const ingestSourceForWrite = getStore().ingestSource
+  const sourceFileName = ingestSourceForWrite ? getFileName(ingestSourceForWrite) : "chat-session"
 
-  for (const match of matches) {
-    const relativePath = match[1].trim()
-    const content = match[2]
+  const { writtenPaths, warnings: writeWarnings } = await writeFileBlocks(
+    pp,
+    accumulated,
+    llmConfig,
+    sourceFileName,
+    signal,
+  )
 
-    if (!relativePath) continue
-
-    const fullPath = `${pp}/${relativePath}`
-
-    try {
-      if (relativePath === "wiki/log.md" || relativePath.endsWith("/log.md")) {
-        const existing = await tryReadFile(fullPath)
-        const appended = existing
-          ? `${existing}\n\n${content.trim()}`
-          : content.trim()
-        await writeFile(fullPath, appended)
-      } else {
-        await writeFile(fullPath, content)
-      }
-      writtenPaths.push(fullPath)
-    } catch (err) {
-      console.error(`Failed to write ${fullPath}:`, err)
-    }
+  if (writeWarnings.length > 0) {
+    const warningMsg = writeWarnings.map((w) => `- ${w}`).join("\n")
+    getStore().addMessage("system", `Warnings during write:\n${warningMsg}`)
   }
 
   if (writtenPaths.length > 0) {
-    const fileList = writtenPaths.map((p) => `- ${p}`).join("\n")
+    const fileList = writtenPaths.map((p) => `- ${pp}/${p}`).join("\n")
     getStore().addMessage("system", `Files written to wiki:\n${fileList}`)
   } else {
     getStore().addMessage("system", "No files were written. The LLM response did not contain valid FILE blocks.")

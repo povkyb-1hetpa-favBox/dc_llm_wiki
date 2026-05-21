@@ -19,6 +19,9 @@ beforeEach(() => {
   mockInvoke.mockReset()
   useWikiStore.getState().setEmbeddingConfig({
     enabled: true,
+    provider: "remote" as const,
+    localModel: "Xenova/bge-small-zh-v1.5" as const,
+    chunkingStrategy: "recursive" as const,
     endpoint: "http://test/v1/embeddings",
     apiKey: "",
     model: "test-embed",
@@ -59,6 +62,9 @@ describe("searchWiki backend wrapper", () => {
   it("passes disabled embedding config through for backend keyword-only search", async () => {
     useWikiStore.getState().setEmbeddingConfig({
       enabled: false,
+      provider: "remote" as const,
+      localModel: "Xenova/bge-small-zh-v1.5" as const,
+      chunkingStrategy: "recursive" as const,
       endpoint: "",
       apiKey: "",
       model: "",

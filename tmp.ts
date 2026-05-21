@@ -4,8 +4,8 @@ import i18n from "@/i18n"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useReviewStore } from "@/stores/review-store"
 import { useChatStore } from "@/stores/chat-store"
-import { listDirectory, openProject, readFile } from "@/commands/fs"
-import { getLastProject, getRecentProjects, saveLastProject, loadLlmConfig, loadLanguage, loadSearchApiConfig, loadEmbeddingConfig, loadMultimodalConfig, loadOutputLanguage, loadProviderConfigs, loadActivePresetId, loadProxyConfig, loadScheduledImportConfig, saveScheduledImportConfig, loadSourceWatchConfig, loadApiConfig, loadUpdateCheckState, saveUpdateCheckState, saveLlmConfig } from "@/lib/project-store"
+import { listDirectory, openProject } from "@/commands/fs"
+import { getLastProject, getRecentProjects, saveLastProject, loadLlmConfig, loadLanguage, loadSearchApiConfig, loadEmbeddingConfig, loadMultimodalConfig, loadOutputLanguage, loadProviderConfigs, loadActivePresetId, loadProxyConfig, loadScheduledImportConfig, saveScheduledImportConfig, loadSourceWatchConfig, loadApiConfig } from "@/lib/project-store"
 import { loadReviewItems, loadChatHistory } from "@/lib/persist"
 import { setupAutoSave } from "@/lib/auto-save"
 import { startClipWatcher } from "@/lib/clip-watcher"
@@ -14,10 +14,12 @@ import { WelcomeScreen } from "@/components/project/welcome-screen"
 import { CreateProjectDialog } from "@/components/project/create-project-dialog"
 import type { WikiProject } from "@/types/wiki"
 import { useUpdateStore } from "@/stores/update-store"
+import { loadUpdateCheckState, saveUpdateCheckState, saveLlmConfig } from "@/lib/project-store"
 import { checkForUpdates, UPDATE_CHECK_CACHE_MS } from "@/lib/update-check"
 import { LLM_PRESETS } from "@/components/settings/llm-presets"
 import { resolveConfig } from "@/components/settings/preset-resolver"
 import { resetProjectState } from "@/lib/reset-project-state"
+import { readFile } from "@/commands/fs"
 import { restoreQueue as restoreIngestQueue } from "@/lib/ingest-queue"
 import { restoreQueue as restoreDedupQueue } from "@/lib/dedup-queue"
 import { startScheduledImport, stopScheduledImport } from "@/lib/scheduled-import"
@@ -49,6 +51,8 @@ function App() {
   useEffect(() => {
     if (!import.meta.env.DEV) return
     ;(async () => {
+      const storeMod = await import("@/stores/update-store")
+      const { useUpdateStore } = storeMod
       // Expose the live store getter on window so you can inspect
       // state from devtools when debugging banner behavior.
       ;(window as unknown as { __llmwiki_updateStore?: typeof useUpdateStore }).__llmwiki_updateStore = useUpdateStore
@@ -193,12 +197,15 @@ function App() {
           // `llmConfig` snapshot from a previous launch would keep the
           // old value. Overrides still win, so an explicit user choice
           // is preserved.
+          const { LLM_PRESETS } = await import("@/components/settings/llm-presets")
+          const { resolveConfig } = await import("@/components/settings/preset-resolver")
           const preset = LLM_PRESETS.find((p) => p.id === savedActivePreset)
           if (preset) {
             const currentFallback = useWikiStore.getState().llmConfig
             const override = (savedProviderConfigs ?? {})[savedActivePreset]
             const resolved = resolveConfig(preset, override, currentFallback)
             useWikiStore.getState().setLlmConfig(resolved)
+            const { saveLlmConfig } = await import("@/lib/project-store")
             await saveLlmConfig(resolved)
           }
         }
@@ -261,6 +268,7 @@ function App() {
     // to prevent cross-project contamination. MUST be awaited so the
     // ingest queue / graph cache are actually cleared before the new
     // project's state is populated.
+    const { resetProjectState } = await import("@/lib/reset-project-state")
     await resetProjectState()
 
     setProject(proj)
@@ -270,6 +278,7 @@ function App() {
 
     // Detect if it's a bidding project by checking schema.md
     try {
+      const { readFile } = await import("@/commands/fs")
       const schema = await readFile(`${proj.path}/schema.md`)
       const isBidding = schema.includes("# Wiki Schema — Bidding Support")
       useWikiStore.getState().setIsBidding(isBidding)
@@ -288,16 +297,17 @@ function App() {
     // Await this before starting file sync: watcher events for raw/sources
     // may enqueue ingest tasks and require an active project queue.
     try {
-      await restoreIngestQueue(proj.id, proj.path)
+      const { restoreQueue } = await import("@/lib/ingest-queue")
+      await restoreQueue(proj.id, proj.path)
     } catch (err) {
       console.error("Failed to restore ingest queue:", err)
     }
     // Same handshake for the dedup-merge queue.
-    try {
-      await restoreDedupQueue(proj.id, proj.path)
-    } catch (err) {
-      console.error("Failed to restore dedup queue:", err)
-    }
+    import("@/lib/dedup-queue").then(({ restoreQueue }) => {
+      restoreQueue(proj.id, proj.path).catch((err) =>
+        console.error("Failed to restore dedup queue:", err)
+      )
+    })
     // Load per-project scheduled import config
     try {
       const savedScheduledImport = await loadScheduledImportConfig(proj.path)
@@ -326,26 +336,25 @@ function App() {
     // Start scheduled import if enabled
     const scheduledImportConfig = useWikiStore.getState().scheduledImportConfig
     if (scheduledImportConfig.enabled && scheduledImportConfig.path && scheduledImportConfig.interval > 0) {
-      try {
+      import("@/lib/scheduled-import").then(({ startScheduledImport }) => {
         startScheduledImport(proj, scheduledImportConfig)
-      } catch (err) {
+      }).catch((err) =>
         console.error("Failed to start scheduled import:", err)
-      }
+      )
     }
 
     // Start project source watch if enabled
-    try {
+    import("@/lib/project-file-sync").then(async ({ startProjectFileSync, stopProjectFileSync }) => {
       const config = await loadSourceWatchConfig(proj.id)
       useWikiStore.getState().setSourceWatchConfig(config)
       if (config.enabled) {
-        await startProjectFileSync(proj, config)
+        startProjectFileSync(proj, config).catch((err) =>
+          console.error("Failed to start project file sync:", err)
+        )
       } else {
-        await stopProjectFileSync()
+        stopProjectFileSync().catch(() => {})
       }
-    } catch (err) {
-      console.error("Failed to configure project file sync:", err)
-    }
-
+    }).catch((err) => console.error("Failed to configure project file sync:", err))
     // Notify local clip server of the current project + all recent projects
     fetch("http://127.0.0.1:19827/project", {
       method: "POST",
@@ -435,6 +444,7 @@ function App() {
 
     // Clear all per-project state BEFORE flipping back to the welcome screen
     // so old data cannot leak in via any async render pass.
+    const { resetProjectState } = await import("@/lib/reset-project-state")
     await resetProjectState()
     setProject(null)
     setFileTree([])

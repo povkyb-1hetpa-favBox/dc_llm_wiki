@@ -13,6 +13,7 @@ import {
   Layers,
   Calendar,
   Tag as TagIcon,
+  Search,
 } from "lucide-react"
 import type { FrontmatterValue } from "@/lib/frontmatter"
 import { getWikiTypeStyle } from "@/lib/wiki-type-style"
@@ -68,17 +69,25 @@ export function FrontmatterPanel({ data }: FrontmatterPanelProps) {
   const wikiRoot = projectPath ? `${projectPath}/wiki` : null
   const sourcesRoot = projectPath ? `${projectPath}/raw/sources` : null
 
+  const setPendingScrollPage = useWikiStore((s) => s.setPendingScrollPage)
+
   const typeStyle = getWikiTypeStyle(type)
   const TypeIcon = typeStyle.icon
 
+  const sourceRefs = arrayValue(data.source_ref || (data as any).sourceRef)
+
   const hasIdentity = title || type || tags.length > 0 || created
-  const hasRelations = sources.length > 0 || related.length > 0
+  const hasRelations =
+    sources.length > 0 || related.length > 0 || sourceRefs.length > 0
   const hasContent =
     hasIdentity || description || origin || hasRelations || extras.length > 0
   if (!hasContent) return null
 
-  function handleNavigate(path: string | null) {
+  function handleNavigate(path: string | null, pageNum?: number) {
     if (!path) return
+    if (typeof pageNum === "number") {
+      setPendingScrollPage(pageNum)
+    }
     setSelectedFile(path)
   }
 
@@ -135,6 +144,49 @@ export function FrontmatterPanel({ data }: FrontmatterPanelProps) {
         <div className="mx-4 mt-3 rounded border-l-2 border-primary/40 bg-primary/5 px-3 py-1.5 text-xs text-foreground/80">
           <span className="font-medium text-muted-foreground">Origin: </span>
           {origin}
+        </div>
+      )}
+
+      {/* Source References (Evidence Anchors) ────────────────────── */}
+      {sourceRefs.length > 0 && (
+        <div className="px-4 pt-4">
+          <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+            <Search className="h-3.5 w-3.5" />
+            Evidence Anchors
+            <span className="text-muted-foreground/60">
+              ({sourceRefs.length})
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {sourceRefs.map((ref) => {
+              const [fileName, pageStr] = ref.split(":")
+              const pageNum = pageStr ? parseInt(pageStr, 10) : undefined
+              const path = sourcesRoot
+                ? resolveSourceName(fileTree, fileName, sourcesRoot)
+                : null
+
+              return (
+                <button
+                  key={ref}
+                  onClick={() => handleNavigate(path, pageNum)}
+                  className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-all ${
+                    path
+                      ? "bg-primary/10 border-primary/20 hover:bg-primary/20 text-primary font-medium cursor-pointer"
+                      : "bg-muted border-border text-muted-foreground opacity-60 cursor-default"
+                  }`}
+                >
+                  <FileTextIcon className="h-3 w-3" />
+                  <span className="truncate max-w-[120px]">{fileName}</span>
+                  {pageNum ? (
+                    <span className="opacity-70">:p{pageNum}</span>
+                  ) : null}
+                  {path && (
+                    <ArrowUpRight className="h-3 w-3 ml-0.5 opacity-50" />
+                  )}
+                </button>
+              )
+            })}
+          </div>
         </div>
       )}
 

@@ -122,6 +122,8 @@ function TextPreview({ filePath, content, label }: { filePath: string; content: 
   const projectPath = useWikiStore((s) => s.project?.path ?? null)
   const pendingScrollImageSrc = useWikiStore((s) => s.pendingScrollImageSrc)
   const setPendingScrollImageSrc = useWikiStore((s) => s.setPendingScrollImageSrc)
+  const pendingScrollPage = useWikiStore((s) => s.pendingScrollPage)
+  const setPendingScrollPage = useWikiStore((s) => s.setPendingScrollPage)
   const scrollRootRef = useRef<HTMLDivElement | null>(null)
 
   const { frontmatter, body } = useMemo(() => parseFrontmatter(content), [content])
@@ -182,6 +184,36 @@ function TextPreview({ filePath, content, label }: { filePath: string; content: 
     setPendingScrollImageSrc(null)
     return () => clearTimeout(tHighlight)
   }, [pendingScrollImageSrc, content, setPendingScrollImageSrc])
+
+  // Consume `pendingScrollPage` once the file has rendered.
+  // Targets headings like `## Page 12`.
+  useEffect(() => {
+    if (!pendingScrollPage) return
+    const root = scrollRootRef.current
+    if (!root) return
+
+    const targetHeading = `Page ${pendingScrollPage}`
+    // Find the rendered h2 element. ReactMarkdown converts ## to h2.
+    const headings = Array.from(root.querySelectorAll("h2"))
+    const target = headings.find((h) => h.textContent?.trim() === targetHeading)
+
+    if (!target) {
+      // Clear pending if not found
+      setPendingScrollPage(null)
+      return
+    }
+
+    target.scrollIntoView({ behavior: "smooth", block: "start" })
+
+    // Briefly highlight the heading
+    target.classList.add("bg-primary/20", "ring-2", "ring-primary", "rounded-sm")
+    const tHighlight = setTimeout(() => {
+      target.classList.remove("bg-primary/20", "ring-2", "ring-primary", "rounded-sm")
+    }, 2500)
+
+    setPendingScrollPage(null)
+    return () => clearTimeout(tHighlight)
+  }, [pendingScrollPage, body, setPendingScrollPage])
 
   return (
     <div ref={scrollRootRef} className="h-full overflow-auto p-6">

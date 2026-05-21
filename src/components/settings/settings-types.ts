@@ -20,6 +20,9 @@ export interface SettingsDraft {
 
   // Embedding
   embeddingEnabled: boolean
+  embeddingProvider: "remote" | "local"
+  embeddingLocalModel: "Xenova/all-MiniLM-L6-v2" | "Xenova/bge-small-zh-v1.5" | "Xenova/gte-tiny"
+  embeddingChunkingStrategy: "recursive" | "heading-atomic"
   embeddingEndpoint: string
   embeddingApiKey: string
   embeddingModel: string

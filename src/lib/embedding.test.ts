@@ -49,6 +49,9 @@ import {
 
 const cfg = {
   enabled: true,
+  provider: "remote" as const,
+  localModel: "Xenova/bge-small-zh-v1.5" as const,
+  chunkingStrategy: "recursive" as const,
   endpoint: "http://localhost:1234/v1/embeddings",
   apiKey: "",
   model: "test-embed",
@@ -234,6 +237,9 @@ describe("fetchEmbedding — provider wire formats", () => {
 
     const out = await fetchEmbedding("hi", {
       enabled: true,
+      provider: "remote" as const,
+      localModel: "Xenova/bge-small-zh-v1.5" as const,
+      chunkingStrategy: "recursive" as const,
       endpoint: "https://api.openai.com/v1/embeddings",
       apiKey: "sk-test",
       model: "text-embedding-3-small",
@@ -255,6 +261,9 @@ describe("fetchEmbedding — provider wire formats", () => {
 
     const out = await fetchEmbedding("hi", {
       enabled: true,
+      provider: "remote" as const,
+      localModel: "Xenova/bge-small-zh-v1.5" as const,
+      chunkingStrategy: "recursive" as const,
       endpoint: "http://127.0.0.1:1234/v1/embeddings",
       apiKey: "",
       model: "text-embedding-qwen3-embedding-0.6b",
@@ -281,6 +290,9 @@ describe("fetchEmbedding — provider wire formats", () => {
 
     const out = await fetchEmbedding("hello", {
       enabled: true,
+      provider: "remote" as const,
+      localModel: "Xenova/bge-small-zh-v1.5" as const,
+      chunkingStrategy: "recursive" as const,
       endpoint: "https://generativelanguage.googleapis.com/v1beta",
       apiKey: "g-key",
       model: "gemini-embedding-001",
@@ -308,6 +320,9 @@ describe("fetchEmbedding — provider wire formats", () => {
 
     const out = await fetchEmbedding("hello", {
       enabled: true,
+      provider: "remote",
+      localModel: "Xenova/bge-small-zh-v1.5",
+      chunkingStrategy: "recursive",
       endpoint: "https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent",
       apiKey: "g-key",
       model: "text-embedding-004",
@@ -329,6 +344,9 @@ describe("fetchEmbedding — provider wire formats", () => {
 
     await fetchEmbedding("hello", {
       enabled: true,
+      provider: "remote",
+      localModel: "Xenova/bge-small-zh-v1.5",
+      chunkingStrategy: "recursive",
       endpoint: "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2:embedContent?key=url-key&other=foo",
       apiKey: "header-key",
       model: "gemini-embedding-2",
@@ -349,6 +367,9 @@ describe("fetchEmbedding — provider wire formats", () => {
 
     const out = await fetchEmbedding("hello", {
       enabled: true,
+      provider: "remote",
+      localModel: "Xenova/bge-small-zh-v1.5",
+      chunkingStrategy: "recursive",
       endpoint: "https://proxy.example.com/google/models/gemini-embedding-2:embedContent",
       apiKey: "g-key",
       model: "gemini-embedding-2",
@@ -374,6 +395,9 @@ describe("fetchEmbedding — provider wire formats", () => {
 
     await fetchEmbedding("hello", {
       enabled: true,
+      provider: "remote",
+      localModel: "Xenova/bge-small-zh-v1.5",
+      chunkingStrategy: "recursive",
       endpoint: "https://generativelanguage.googleapis.com/v1beta///",
       apiKey: "g-key",
       model: "gemini-embedding-2",
@@ -394,6 +418,9 @@ describe("fetchEmbedding — provider wire formats", () => {
 
     const out = await fetchEmbedding("What is the meaning of life?", {
       enabled: true,
+      provider: "remote",
+      localModel: "Xenova/bge-small-zh-v1.5",
+      chunkingStrategy: "recursive",
       endpoint: "https://generativelanguage.googleapis.com/v1beta",
       apiKey: "g-key",
       model: "gemini-embedding-2",
@@ -422,6 +449,9 @@ describe("fetchEmbedding — provider wire formats", () => {
 
       await fetchEmbedding("hello", {
         enabled: true,
+        provider: "remote",
+        localModel: "Xenova/bge-small-zh-v1.5",
+        chunkingStrategy: "recursive",
         endpoint: "https://generativelanguage.googleapis.com/v1beta",
         apiKey: "g-key",
         model: "gemini-embedding-2",
@@ -445,6 +475,9 @@ describe("fetchEmbedding — provider wire formats", () => {
 
     await fetchEmbedding("hello", {
       enabled: true,
+      provider: "remote",
+      localModel: "Xenova/bge-small-zh-v1.5",
+      chunkingStrategy: "recursive",
       endpoint: "https://generativelanguage.googleapis.com/v1beta",
       apiKey: "g-key",
       model: "gemini-embedding-2",
@@ -468,6 +501,9 @@ describe("fetchEmbedding — provider wire formats", () => {
 
     const out = await fetchEmbedding("hello", {
       enabled: true,
+      provider: "remote",
+      localModel: "Xenova/bge-small-zh-v1.5",
+      chunkingStrategy: "recursive",
       endpoint: "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2:batchEmbedContents",
       apiKey: "g-key",
       model: "gemini-embedding-2",
@@ -489,6 +525,9 @@ describe("fetchEmbedding — provider wire formats", () => {
 
     const out = await fetchEmbedding("hello", {
       enabled: true,
+      provider: "remote",
+      localModel: "Xenova/bge-small-zh-v1.5",
+      chunkingStrategy: "recursive",
       endpoint: "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2:embedContent?key=url-key",
       apiKey: "header-key",
       model: "gemini-embedding-2",
@@ -510,6 +549,9 @@ describe("fetchEmbedding — provider wire formats", () => {
 
     const out = await fetchEmbedding("hello", {
       enabled: true,
+      provider: "remote",
+      localModel: "Xenova/bge-small-zh-v1.5",
+      chunkingStrategy: "recursive",
       endpoint: "https://generativelanguage.googleapis.com/v1beta",
       apiKey: "g-key",
       model: "gemini-embedding-2",
@@ -532,6 +574,9 @@ describe("fetchEmbedding — provider wire formats", () => {
 
       const out = await fetchEmbedding("hello", {
         enabled: true,
+        provider: "remote",
+        localModel: "Xenova/bge-small-zh-v1.5",
+        chunkingStrategy: "recursive",
         endpoint: "https://generativelanguage.googleapis.com/v1beta",
         apiKey: "g-key",
         model: "gemini-embedding-2",
@@ -552,6 +597,9 @@ describe("fetchEmbedding — provider wire formats", () => {
 
     const out = await fetchEmbedding("hello", {
       enabled: true,
+      provider: "remote",
+      localModel: "Xenova/bge-small-zh-v1.5",
+      chunkingStrategy: "recursive",
       endpoint: "https://generativelanguage.googleapis.com/v1beta",
       apiKey: "g-key",
       model: "gemini-embedding-2",
@@ -571,6 +619,9 @@ describe("fetchEmbedding — provider wire formats", () => {
 
     const out = await fetchEmbedding("hello", {
       enabled: true,
+      provider: "remote",
+      localModel: "Xenova/bge-small-zh-v1.5",
+      chunkingStrategy: "recursive",
       endpoint: "https://generativelanguage.googleapis.com/v1beta",
       apiKey: "bad-key",
       model: "gemini-embedding-2",
@@ -598,6 +649,9 @@ describe("fetchEmbedding — provider wire formats", () => {
 
     const out = await fetchEmbedding("a".repeat(200), {
       enabled: true,
+      provider: "remote",
+      localModel: "Xenova/bge-small-zh-v1.5",
+      chunkingStrategy: "recursive",
       endpoint: "https://generativelanguage.googleapis.com/v1beta",
       apiKey: "g-key",
       model: "gemini-embedding-2",

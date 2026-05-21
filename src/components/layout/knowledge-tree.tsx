@@ -1,6 +1,9 @@
-import { useState, useEffect, useCallback } from "react"
+import {
+  useState, useEffect, useCallback, useRef, useMemo,
+} from "react"
 import {
   FileText, Users, Lightbulb, BookOpen, HelpCircle, GitMerge, BarChart3, ChevronRight, ChevronDown, Layout, Globe, Trash2,
+  CheckCircle, FileSearch, AlertCircle, MessageSquare,
 } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
@@ -19,13 +22,17 @@ interface WikiPageInfo {
 }
 
 const TYPE_CONFIG: Record<string, { icon: typeof FileText; label: string; color: string; order: number }> = {
-  overview:    { icon: Layout,      label: "Overview",     color: "text-yellow-500", order: 0 },
-  entity:      { icon: Users,       label: "Entities",     color: "text-blue-500",   order: 1 },
-  concept:     { icon: Lightbulb,   label: "Concepts",     color: "text-purple-500", order: 2 },
-  source:      { icon: BookOpen,    label: "Sources",      color: "text-orange-500", order: 3 },
-  synthesis:   { icon: GitMerge,    label: "Synthesis",    color: "text-red-500",    order: 4 },
-  comparison:  { icon: BarChart3,   label: "Comparisons",  color: "text-emerald-500",order: 5 },
-  query:       { icon: HelpCircle,  label: "Queries",      color: "text-green-500",  order: 6 },
+  overview:      { icon: Layout,        label: "Overview",       color: "text-yellow-500",  order: 0 },
+  requirement:   { icon: CheckCircle,   label: "Requirements",   color: "text-emerald-500", order: 1 },
+  risk:          { icon: AlertCircle,   label: "Risks",          color: "text-orange-600",  order: 2 },
+  clarification: { icon: MessageSquare, label: "Clarifications", color: "text-indigo-500",  order: 3 },
+  entity:        { icon: Users,         label: "Entities",       color: "text-blue-500",    order: 4 },
+  concept:       { icon: Lightbulb,     label: "Concepts",       color: "text-purple-500",  order: 5 },
+  glossary:      { icon: FileSearch,    label: "Glossary",       color: "text-cyan-500",    order: 6 },
+  source:        { icon: BookOpen,      label: "Sources",        color: "text-orange-500",  order: 7 },
+  synthesis:     { icon: GitMerge,      label: "Synthesis",      color: "text-red-500",     order: 8 },
+  comparison:    { icon: BarChart3,     label: "Comparisons",    color: "text-emerald-500", order: 9 },
+  query:         { icon: HelpCircle,    label: "Queries",        color: "text-green-500",   order: 10 },
 }
 
 const DEFAULT_CONFIG = { icon: FileText, label: "Other", color: "text-muted-foreground", order: 99 }
@@ -38,11 +45,14 @@ export function KnowledgeTree() {
   const setFileTree = useWikiStore((s) => s.setFileTree)
   const bumpDataVersion = useWikiStore((s) => s.bumpDataVersion)
   const [pages, setPages] = useState<WikiPageInfo[]>([])
-  const [expandedTypes, setExpandedTypes] = useState<Set<string>>(new Set(["overview", "entity", "concept", "source"]))
+  const [expandedTypes, setExpandedTypes] = useState<Set<string>>(new Set(["overview", "requirement", "risk", "clarification", "entity", "concept"]))
   // Two-stage delete: first click arms the row, second click executes.
   // Only one row armed at a time (clicking another row replaces).
   const [armedPath, setArmedPath] = useState<string | null>(null)
   const [deletingPath, setDeletingPath] = useState<string | null>(null)
+
+  // Incremental cache: path -> { mtime, info }
+  const cacheRef = useRef<Map<string, { mtime: number; info: WikiPageInfo }>>(new Map())
 
   const loadPages = useCallback(async () => {
     if (!project) return
@@ -51,26 +61,40 @@ export function KnowledgeTree() {
       const wikiTree = await listDirectory(`${pp}/wiki`)
       const mdFiles = flattenMdFiles(wikiTree)
 
-      const pageInfos: WikiPageInfo[] = []
-      for (const file of mdFiles) {
-        // Skip index.md and log.md
-        if (file.name === "index.md" || file.name === "log.md") continue
-        try {
-          const content = await readFile(file.path)
-          const info = parsePageInfo(file.path, file.name, content)
-          pageInfos.push(info)
-        } catch {
-          pageInfos.push({
-            path: file.path,
-            title: file.name.replace(".md", "").replace(/-/g, " "),
-            type: "other",
-            tags: [],
-          })
-        }
-      }
+      const pageInfos = await Promise.all(
+        mdFiles.map(async (file) => {
+          // Skip index.md and log.md
+          if (file.name === "index.md" || file.name === "log.md") return null
 
-      setPages(pageInfos)
-    } catch {
+          // Check cache
+          const cached = cacheRef.current.get(file.path)
+          if (cached && file.mtime !== undefined && cached.mtime === file.mtime) {
+            return cached.info
+          }
+
+          try {
+            const content = await readFile(file.path)
+            const info = parsePageInfo(file.path, file.name, content)
+            // Update cache
+            if (file.mtime !== undefined) {
+              cacheRef.current.set(file.path, { mtime: file.mtime, info })
+            }
+            return info
+          } catch (err) {
+            console.error(`[KnowledgeTree] Failed to read ${file.path}:`, err)
+            return {
+              path: file.path,
+              title: file.name.replace(".md", "").replace(/-/g, " "),
+              type: "other",
+              tags: [],
+            }
+          }
+        }),
+      )
+
+      setPages(pageInfos.filter((p): p is WikiPageInfo => p !== null))
+    } catch (err) {
+      console.error("[KnowledgeTree] loadPages failed:", err)
       setPages([])
     }
   }, [project])
@@ -121,20 +145,22 @@ export function KnowledgeTree() {
     )
   }
 
-  // Group pages by type
-  const grouped = new Map<string, WikiPageInfo[]>()
-  for (const page of pages) {
-    const list = grouped.get(page.type) ?? []
-    list.push(page)
-    grouped.set(page.type, list)
-  }
+  // Group pages by type and sort groups - memoized for performance
+  const sortedGroups = useMemo(() => {
+    const grouped = new Map<string, WikiPageInfo[]>()
+    for (const page of pages) {
+      const list = grouped.get(page.type) ?? []
+      list.push(page)
+      grouped.set(page.type, list)
+    }
 
-  // Sort groups by configured order
-  const sortedGroups = [...grouped.entries()].sort((a, b) => {
-    const orderA = TYPE_CONFIG[a[0]]?.order ?? DEFAULT_CONFIG.order
-    const orderB = TYPE_CONFIG[b[0]]?.order ?? DEFAULT_CONFIG.order
-    return orderA - orderB
-  })
+    // Sort groups by configured order
+    return [...grouped.entries()].sort((a, b) => {
+      const orderA = TYPE_CONFIG[a[0]]?.order ?? DEFAULT_CONFIG.order
+      const orderB = TYPE_CONFIG[b[0]]?.order ?? DEFAULT_CONFIG.order
+      return orderA - orderB
+    })
+  }, [pages])
 
   function toggleType(type: string) {
     setExpandedTypes((prev) => {
@@ -329,6 +355,10 @@ function parsePageInfo(path: string, fileName: string, content: string): WikiPag
     else if (path.includes("/queries/")) type = "query"
     else if (path.includes("/comparisons/")) type = "comparison"
     else if (path.includes("/synthesis/")) type = "synthesis"
+    else if (path.includes("/requirements/")) type = "requirement"
+    else if (path.includes("/glossary/")) type = "glossary"
+    else if (path.includes("/risks/")) type = "risk"
+    else if (path.includes("/clarifications/")) type = "clarification"
     else if (fileName === "overview.md") type = "overview"
   }
 

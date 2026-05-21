@@ -44,19 +44,26 @@
 
 /** Recursive splitter options. All default-friendly; callers typically pass none. */
 export interface ChunkingOptions {
+  /** The splitting strategy to use. 
+   *  - 'recursive': Balanced splitting with cross-heading merging.
+   *  - 'heading-atomic': Each heading section is its own chunk(s); no merging.
+   */
+  strategy: "recursive" | "heading-atomic"
   /** Aim for roughly this many characters per emitted chunk. */
   targetChars: number
   /** Hard upper bound — a single "atomic" piece larger than this is still
    *  emitted but logged via `oversized: true`. Servers with tiny context
    *  (e.g. 512-token llama.cpp default) can use this + auto-retry. */
   maxChars: number
-  /** Chunks shorter than this are greedily merged into the next sibling. */
+  /** Chunks shorter than this are greedily merged into the next sibling. 
+   *  Only applies in 'recursive' strategy. */
   minChars: number
   /** Characters of overlap between adjacent chunks in the same section. */
   overlapChars: number
 }
 
 const DEFAULT_OPTIONS: ChunkingOptions = {
+  strategy: "recursive",
   targetChars: 1000,
   maxChars: 1500,
   minChars: 200,
@@ -260,8 +267,12 @@ function chunkSection(section: Section, opts: ChunkingOptions): Omit<Chunk, "ind
   const atoms = tokenizeAtoms(text)
   const pieces = splitAtomsToPieces(atoms, opts)
   const sized = sizePieces(pieces, opts)
-  const merged = mergeSmall(sized, opts)
-  const withOverlap = applyOverlap(merged, opts)
+
+  // Skip merging for atomic strategy to keep each section isolated
+  const processed =
+    opts.strategy === "heading-atomic" ? sized : mergeSmall(sized, opts)
+
+  const withOverlap = applyOverlap(processed, opts)
 
   // Compute charStart/charEnd for each emitted chunk, marking oversized.
   const out: Omit<Chunk, "index">[] = []

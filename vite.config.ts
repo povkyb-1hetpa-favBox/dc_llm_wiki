@@ -22,6 +22,23 @@ export default defineConfig(async () => ({
     __APP_VERSION__: JSON.stringify(pkgJson.version),
   },
 
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id: string) {
+          if (id.includes('node_modules')) {
+            if (id.includes('react') || id.includes('react-dom')) return 'react';
+            if (id.includes('@codemirror') || id.includes('@uiw/react-codemirror')) return 'codemirror';
+            if (id.includes('@milkdown')) return 'milkdown';
+            if (id.includes('graphology') || id.includes('sigma') || id.includes('@react-sigma')) return 'graph';
+            if (id.includes('katex') || id.includes('rehype-katex') || id.includes('remark-math')) return 'math';
+            return 'vendor';
+          }
+        }
+      }
+    }
+  },
+
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
   // 1. prevent vite from obscuring rust errors

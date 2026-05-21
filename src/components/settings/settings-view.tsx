@@ -112,6 +112,9 @@ function initialDraft(
     apiMode: llm.apiMode,
     reasoning: llm.reasoning,
     embeddingEnabled: embed.enabled,
+    embeddingProvider: embed.provider ?? "remote",
+    embeddingLocalModel: embed.localModel ?? "Xenova/bge-small-zh-v1.5",
+    embeddingChunkingStrategy: embed.chunkingStrategy ?? "recursive",
     embeddingEndpoint: embed.endpoint,
     embeddingApiKey: embed.apiKey,
     embeddingModel: embed.model,
@@ -275,6 +278,9 @@ export function SettingsView() {
     }
     const newEmbed = {
       enabled: draft.embeddingEnabled,
+      provider: draft.embeddingProvider,
+      localModel: draft.embeddingLocalModel,
+      chunkingStrategy: draft.embeddingChunkingStrategy,
       endpoint: draft.embeddingEndpoint,
       apiKey: draft.embeddingApiKey,
       model: draft.embeddingModel,

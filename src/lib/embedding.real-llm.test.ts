@@ -57,6 +57,9 @@ const ENABLED =
 
 const cfg = {
   enabled: true,
+  provider: "remote" as const,
+  localModel: "Xenova/bge-small-zh-v1.5" as const,
+  chunkingStrategy: "recursive" as const,
   endpoint: process.env.EMBEDDING_ENDPOINT ?? "",
   apiKey: process.env.EMBEDDING_API_KEY ?? "",
   model: process.env.EMBEDDING_MODEL ?? "",
@@ -314,6 +317,9 @@ describe("fetchEmbedding against a fake small-context server (real TCP)", () => 
     try {
       const smallCfg = {
         enabled: true,
+        provider: "remote" as const,
+        localModel: "Xenova/bge-small-zh-v1.5" as const,
+        chunkingStrategy: "recursive" as const,
         endpoint: server.url,
         apiKey: "",
         model: "fake-embed",
@@ -343,6 +349,9 @@ describe("fetchEmbedding against a fake small-context server (real TCP)", () => 
     try {
       const smallCfg = {
         enabled: true,
+        provider: "remote" as const,
+        localModel: "Xenova/bge-small-zh-v1.5" as const,
+        chunkingStrategy: "recursive" as const,
         endpoint: server.url,
         apiKey: "",
         model: "fake-embed",
@@ -367,6 +376,9 @@ describe("fetchEmbedding against a fake small-context server (real TCP)", () => 
     try {
       const smallCfg = {
         enabled: true,
+        provider: "remote" as const,
+        localModel: "Xenova/bge-small-zh-v1.5" as const,
+        chunkingStrategy: "recursive" as const,
         endpoint: server.url,
         apiKey: "",
         model: "fake-embed",

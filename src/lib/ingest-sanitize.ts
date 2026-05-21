@@ -70,7 +70,39 @@ export function sanitizeIngestedFileContent(content: string): string {
   // link transform applied at read time.
   cleaned = repairWikilinkListsInFrontmatter(cleaned)
 
+  // (4) Strip duplicate LLM FILE markers leaked into the content.
+  // Happens if the LLM mimics the prompt too literally and emits:
+  //   ---FILE: path---
+  //   ```markdown
+  //   ---FILE: path---
+  //   [content]
+  //   ---END FILE---
+  //   ```
+  cleaned = stripLeakedFileMarkers(cleaned)
+
   return cleaned
+}
+
+/**
+ * Strips `---FILE: ...---` at the start of the file and
+ * `---END FILE---` at the end of the file. Handles cases where the
+ * LLM repeated the marker inside its own fenced code block output,
+ * which the parser correctly treats as literal text to avoid truncation,
+ * but which then needs to be cleaned up after the outer fence is stripped.
+ */
+function stripLeakedFileMarkers(content: string): string {
+  let res = content
+  // Remove leading ---FILE: path.md---
+  const leadingFileMatch = res.match(/^[ \t]*---\s*FILE:\s*([^\n]+?)\s*---\s*\r?\n/i)
+  if (leadingFileMatch) {
+    res = res.slice(leadingFileMatch[0].length)
+  }
+  // Remove trailing ---END FILE---
+  const trailingFileMatch = res.match(/\r?\n[ \t]*---\s*END FILE\s*---\s*\r?\n?$/i)
+  if (trailingFileMatch) {
+    res = res.slice(0, trailingFileMatch.index)
+  }
+  return res
 }
 
 /** Top-level fence wrapper. Removes the open + close fence lines. */

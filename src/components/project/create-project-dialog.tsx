@@ -11,6 +11,7 @@ import { FolderOpen } from "lucide-react"
 import { createProject, writeFile, createDirectory } from "@/commands/fs"
 import { getTemplate } from "@/lib/templates"
 import { TemplatePicker } from "@/components/project/template-picker"
+import { initializeProjectPrompts } from "@/lib/prompt-loader"
 import type { WikiProject } from "@/types/wiki"
 import { normalizePath } from "@/lib/path-utils"
 import { OUTPUT_LANGUAGE_OPTIONS } from "@/lib/output-language-options"
@@ -70,6 +71,9 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated }: C
       for (const dir of template.extraDirs) {
         await createDirectory(`${pp}/${dir}`)
       }
+
+      // Initialize default prompts for user customization
+      await initializeProjectPrompts(pp)
 
       // Persist the user's language choice. The store / disk
       // mirror is what the rest of the app reads via

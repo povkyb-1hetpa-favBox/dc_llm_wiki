@@ -20,14 +20,18 @@ import { applyGraphSearch } from "@/lib/graph-search"
 import { useTranslation } from "react-i18next"
 
 const NODE_TYPE_COLORS: Record<string, string> = {
-  entity: "#60a5fa",    // blue-400
-  concept: "#c084fc",   // purple-400
-  source: "#fb923c",    // orange-400
-  query: "#4ade80",     // green-400
+  entity: "#60a5fa", // blue-400
+  concept: "#c084fc", // purple-400
+  source: "#fb923c", // orange-400
+  query: "#4ade80", // green-400
   synthesis: "#f87171", // red-400
-  overview: "#facc15",  // yellow-400
+  overview: "#facc15", // yellow-400
   comparison: "#2dd4bf", // teal-400
-  other: "#94a3b8",     // slate-400
+  requirement: "#10b981", // emerald-500
+  glossary: "#06b6d4", // cyan-500
+  risk: "#d97706", // amber-600
+  clarification: "#818cf8", // indigo-400
+  other: "#94a3b8", // slate-400
 }
 
 const COMMUNITY_COLORS = [

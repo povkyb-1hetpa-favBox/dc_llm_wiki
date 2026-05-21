@@ -10,6 +10,7 @@ import {
   ClipboardList,
   Globe,
   LayoutDashboard,
+  CopyCheck,
 } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -85,27 +86,49 @@ export function IconSidebar({ onSwitchProject }: IconSidebarProps) {
             <Tooltip>
               <TooltipTrigger
                 onClick={() => setActiveView("bidding")}
-                className={`relative flex h-10 w-10 items-center justify-center rounded-md transition-colors ${
+                className={`relative flex h-10 w-10 items-center justify-center rounded-md transition-all ${
                   activeView === "bidding"
-                    ? "bg-accent text-accent-foreground"
+                    ? "bg-primary/15 text-primary"
                     : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"
                 }`}
               >
+                {activeView === "bidding" && (
+                  <div className="absolute -left-2 h-6 w-1 rounded-r-full bg-primary" />
+                )}
                 <LayoutDashboard className="h-5 w-5" />
               </TooltipTrigger>
               <TooltipContent side="right">投标看板</TooltipContent>
             </Tooltip>
           )}
+          <Tooltip>
+            <TooltipTrigger
+              onClick={() => setActiveView("dedup")}
+              className={`relative flex h-10 w-10 items-center justify-center rounded-md transition-all ${
+                activeView === "dedup"
+                  ? "bg-primary/15 text-primary"
+                  : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"
+              }`}
+            >
+              {activeView === "dedup" && (
+                <div className="absolute -left-2 h-6 w-1 rounded-r-full bg-primary" />
+              )}
+              <CopyCheck className="h-5 w-5" />
+            </TooltipTrigger>
+            <TooltipContent side="right">知识去重</TooltipContent>
+          </Tooltip>
           {NAV_ITEMS.map(({ view, icon: Icon, labelKey }) => (
             <Tooltip key={view}>
               <TooltipTrigger
                 onClick={() => setActiveView(view)}
-                className={`relative flex h-10 w-10 items-center justify-center rounded-md transition-colors ${
+                className={`relative flex h-10 w-10 items-center justify-center rounded-md transition-all ${
                   activeView === view
-                    ? "bg-accent text-accent-foreground"
+                    ? "bg-primary/15 text-primary"
                     : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"
                 }`}
               >
+                {activeView === view && (
+                  <div className="absolute -left-2 h-6 w-1 rounded-r-full bg-primary" />
+                )}
                 <Icon className="h-5 w-5" />
                 {view === "review" && pendingCount > 0 && (
                   <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">
@@ -167,12 +190,15 @@ export function IconSidebar({ onSwitchProject }: IconSidebarProps) {
           <Tooltip>
             <TooltipTrigger
               onClick={() => setActiveView("settings")}
-              className={`relative flex h-10 w-10 items-center justify-center rounded-md transition-colors ${
+              className={`relative flex h-10 w-10 items-center justify-center rounded-md transition-all ${
                 activeView === "settings"
-                  ? "bg-accent text-accent-foreground"
+                  ? "bg-primary/15 text-primary"
                   : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"
               }`}
             >
+              {activeView === "settings" && (
+                <div className="absolute -left-2 h-6 w-1 rounded-r-full bg-primary" />
+              )}
               <Settings className="h-5 w-5" />
               {updateAvailable && (
                 // Update-available indicator on the Settings gear.

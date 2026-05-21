@@ -139,11 +139,21 @@ pub fn extract_pdf_markdown(
             out.push_str("\n\n");
         }
         out.push_str(&format!("## Page {page_num}\n\n"));
+        // Inject a machine-readable marker that the LLM can see but the
+        // markdown renderer (once we add the rule) will treat as a
+        // jump target.
+        out.push_str(&format!("<!-- PAGE_START:{} -->\n", page_num));
 
         let page_text = page
             .text()
             .map_err(|e| format!("Page {page_num} text extraction failed in '{path}': {e}"))?;
         out.push_str(&page_text.all());
+        
+        // Append a visible (but subtle) marker for the LLM's context.
+        // LLMs sometimes ignore HTML comments if the prompt doesn't 
+        // explicitly mention them. A bracketed marker is more reliable.
+        out.push_str(&format!("\n[SOURCE_PAGE:{}]\n", page_num));
+
         // Single trailing newline so the next block starts on its own
         // line; the `\n\n` separator before the next `## Page` heading
         // gets prepended by the loop entry above.

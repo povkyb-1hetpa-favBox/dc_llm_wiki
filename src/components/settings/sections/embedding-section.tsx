@@ -115,35 +115,81 @@ export function EmbeddingSection({ draft, setDraft }: Props) {
       {draft.embeddingEnabled && (
         <>
           <div className="space-y-2">
-            <Label>{t("settings.sections.embedding.endpoint")}</Label>
-            <Input
-              value={draft.embeddingEndpoint}
-              onChange={(e) => setDraft("embeddingEndpoint", e.target.value)}
-              placeholder="http://127.0.0.1:1234/v1/embeddings"
-            />
-            <p className="text-xs text-muted-foreground">
-              {t("settings.sections.embedding.endpointHint")}
-            </p>
+            <Label>{t("settings.sections.embedding.provider")}</Label>
+            <div className="flex gap-4">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="embeddingProvider"
+                  checked={draft.embeddingProvider === "remote"}
+                  onChange={() => setDraft("embeddingProvider", "remote")}
+                  className="h-4 w-4"
+                />
+                <span className="text-sm">Remote API (Ollama/OpenAI)</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="embeddingProvider"
+                  checked={draft.embeddingProvider === "local"}
+                  onChange={() => setDraft("embeddingProvider", "local")}
+                  className="h-4 w-4"
+                />
+                <span className="text-sm">Local (Built-in)</span>
+              </label>
+            </div>
           </div>
 
-          <div className="space-y-2">
-            <Label>{t("settings.sections.embedding.apiKey")}</Label>
-            <Input
-              type="password"
-              value={draft.embeddingApiKey}
-              onChange={(e) => setDraft("embeddingApiKey", e.target.value)}
-              placeholder={t("settings.sections.embedding.apiKeyPlaceholder")}
-            />
-          </div>
+          {draft.embeddingProvider === "local" ? (
+            <div className="space-y-2 animate-in fade-in slide-in-from-top-1 duration-200">
+              <Label>{t("settings.sections.embedding.localModel")}</Label>
+              <select
+                value={draft.embeddingLocalModel}
+                onChange={(e) => setDraft("embeddingLocalModel", e.target.value as any)}
+                className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                <option value="Xenova/bge-small-zh-v1.5">BGE Small (Chinese optimized, ~100MB)</option>
+                <option value="Xenova/all-MiniLM-L6-v2">MiniLM-L6 (English optimized, ~23MB)</option>
+                <option value="Xenova/gte-tiny">GTE Tiny (Fastest, ultra-lightweight)</option>
+              </select>
+              <p className="text-xs text-muted-foreground italic">
+                Note: The model will be downloaded automatically on first use.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4 animate-in fade-in slide-in-from-top-1 duration-200">
+              <div className="space-y-2">
+                <Label>{t("settings.sections.embedding.endpoint")}</Label>
+                <Input
+                  value={draft.embeddingEndpoint}
+                  onChange={(e) => setDraft("embeddingEndpoint", e.target.value)}
+                  placeholder="http://127.0.0.1:1234/v1/embeddings"
+                />
+                <p className="text-xs text-muted-foreground">
+                  {t("settings.sections.embedding.endpointHint")}
+                </p>
+              </div>
 
-          <div className="space-y-2">
-            <Label>{t("settings.sections.embedding.model")}</Label>
-            <Input
-              value={draft.embeddingModel}
-              onChange={(e) => setDraft("embeddingModel", e.target.value)}
-              placeholder="e.g. text-embedding-qwen3-embedding-0.6b or gemini-embedding-001"
-            />
-          </div>
+              <div className="space-y-2">
+                <Label>{t("settings.sections.embedding.apiKey")}</Label>
+                <Input
+                  type="password"
+                  value={draft.embeddingApiKey}
+                  onChange={(e) => setDraft("embeddingApiKey", e.target.value)}
+                  placeholder={t("settings.sections.embedding.apiKeyPlaceholder")}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>{t("settings.sections.embedding.model")}</Label>
+                <Input
+                  value={draft.embeddingModel}
+                  onChange={(e) => setDraft("embeddingModel", e.target.value)}
+                  placeholder="e.g. text-embedding-qwen3-embedding-0.6b or gemini-embedding-001"
+                />
+              </div>
+            </div>
+          )}
 
           <div className="space-y-2">
             <Label>{t("settings.sections.embedding.outputDimensionality")}</Label>
@@ -165,6 +211,29 @@ export function EmbeddingSection({ draft, setDraft }: Props) {
           <div className="space-y-3 rounded-md border p-3">
             <div className="text-sm font-medium">
               {t("settings.sections.embedding.chunking")}
+            </div>
+
+            <div className="space-y-2">
+              <Label>{t("settings.sections.embedding.chunkingStrategy")}</Label>
+              <select
+                value={draft.embeddingChunkingStrategy}
+                onChange={(e) =>
+                  setDraft("embeddingChunkingStrategy", e.target.value as any)
+                }
+                className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                <option value="recursive">
+                  {t("settings.sections.embedding.strategyRecursive")}
+                </option>
+                <option value="heading-atomic">
+                  {t("settings.sections.embedding.strategyHeadingAtomic")}
+                </option>
+              </select>
+              <p className="text-xs text-muted-foreground">
+                {draft.embeddingChunkingStrategy === "recursive"
+                  ? t("settings.sections.embedding.strategyRecursiveHint")
+                  : t("settings.sections.embedding.strategyHeadingAtomicHint")}
+              </p>
             </div>
 
             <div className="space-y-2">

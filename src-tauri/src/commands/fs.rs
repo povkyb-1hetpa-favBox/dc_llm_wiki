@@ -1060,6 +1060,12 @@ fn build_tree(dir: &Path, depth: usize, max_depth: usize) -> Result<Vec<FileNode
         let path_str = entry_path.to_string_lossy().replace('\\', "/");
         let is_dir = entry_path.is_dir();
 
+        let mtime = fs::metadata(&entry_path)
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_millis() as u64);
+
         let children = if is_dir {
             let kids = build_tree(&entry_path, depth + 1, max_depth)?;
             if kids.is_empty() {
@@ -1075,6 +1081,7 @@ fn build_tree(dir: &Path, depth: usize, max_depth: usize) -> Result<Vec<FileNode
             name,
             path: path_str,
             is_dir,
+            mtime,
             children,
         });
     }

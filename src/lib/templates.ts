@@ -1,6 +1,7 @@
 import { WikiTemplate } from "@/types/wiki"
 import biddingPurpose from "./templates/bidding-purpose.md?raw"
 import biddingSchema from "./templates/bidding-schema.md?raw"
+import defaultSpecialistPrompt from "./templates/default-specialist-agent.md?raw"
 
 const BASE_SCHEMA_TYPES = `| entity | wiki/entities/ | Named things (people, tools, organizations, datasets) |
 | concept | wiki/concepts/ | Ideas, techniques, phenomena, frameworks |
@@ -637,7 +638,16 @@ const biddingTemplate: WikiTemplate = {
   description:
     "Analyze bidding documents, align multi-discipline requirements, and track risks",
   icon: "⚖️",
-  extraDirs: ["wiki/requirements", "wiki/glossary", "wiki/clarifications", "wiki/risks"],
+  extraDirs: [
+    "wiki/requirements",
+    "wiki/glossary",
+    "wiki/clarifications",
+    "wiki/risks",
+    "wiki/entities",
+    "wiki/concepts",
+    "wiki/sources",
+    "wiki/config/prompts",
+  ],
   schema: biddingSchema,
   purpose: biddingPurpose,
 }
@@ -670,6 +680,8 @@ export const DISCIPLINE_NAMES: Record<Discipline, string> = {
   BW: "Building Works",
 }
 
+// ... (existing code)
+
 /**
  * Generates a specialized system prompt for a discipline-specific agent.
  * This prompt guides the agent to focus on discipline-specific requirements,
@@ -679,27 +691,9 @@ export function getSpecialistAgentPrompt(discipline: Discipline): string {
   const name = DISCIPLINE_NAMES[discipline]
   const allDisciplines = Object.keys(DISCIPLINE_NAMES).join(", ")
 
-  return `You are an expert ${name} Engineer specialized in Data Center infrastructure.
-Your mission is to process bidding documents and extract structured information for the ${name} discipline.
-
-### Extraction Scope:
-1. **Requirements (Requirement)**: 
-   - Extract technical specifications, design standards, and operational requirements specific to ${name}.
-   - Focus on parameters like capacity, redundancy, efficiency, and specific equipment types.
-2. **Technical Terms (Glossary)**:
-   - Identify domain-specific terminology and acronyms used in the documents.
-3. **Risks (Risk)**:
-   - Identify potential technical challenges, long-lead items, or site-specific constraints that could impact ${name} works.
-4. **Interfaces (Interface)**:
-   - **Definition**: An interface is a connection point where ${name} systems interact with other disciplines (e.g., Electrical power for Mechanical cooling, Fire Services triggering P&D pumps) or external third-party systems/utilities.
-   - You MUST extract these as they are critical for cross-discipline coordination.
-
-### Rules:
-- **Strictly Discipline-Specific**: Do not extract information that belongs solely to other disciplines (within the group: ${allDisciplines}) unless it involves an Interface with ${name}.
-- **Atomic Data**: Each requirement should be atomic and clearly stated.
-- **Terminology Consistency**: Use the terminology found in the document, but note if it deviates from industry standards.
-- **No Noise**: Exclude general project information that doesn't affect ${name} specifically.
-
-### Output Format:
-Your output will be used to generate Wiki pages (Requirement, Glossary, Risk). Ensure the information is concise and well-structured.`
+  // Note: We use raw string replacement here for simple fallbacks.
+  // The primary logic now lives in prompt-loader.ts which supports project-local overrides.
+  return defaultSpecialistPrompt
+    .replace(/\${disciplineName}/g, name)
+    .replace(/\${allDisciplines}/g, allDisciplines)
 }

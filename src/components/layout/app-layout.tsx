@@ -86,7 +86,7 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
   // Settings and Bidding Dashboard are full-width views — the file tree / activity panel
   // are irrelevant there and their narrow column makes the forms/dashboard cramped.
   // Hide both the left sidebar (and the file preview on the right) so they use the whole area.
-  const isFullWidth = activeView === "settings" || activeView === "bidding"
+  const isFullWidth = activeView === "settings" || activeView === "bidding" || activeView === "dedup"
   const hasRightPanel = !isFullWidth && !!(selectedFile || researchPanelOpen)
 
   return (

@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import remarkMath from "remark-math"
 import rehypeKatex from "rehype-katex"
+import rehypeRaw from "rehype-raw"
 import "katex/dist/katex.min.css"
 import { transformWikilinks } from "@/lib/wikilink-transform"
 import { resolveRelatedSlug } from "@/lib/wiki-page-resolver"
@@ -58,14 +59,14 @@ export function WikiReader({ body }: WikiReaderProps) {
 
   return (
     <div
-      className="prose prose-invert min-w-0 max-w-none"
+      className="prose dark:prose-invert min-w-0 max-w-none"
       dir={direction}
       lang={htmlLang}
       style={{ textAlign: "start" }}
     >
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath]}
-        rehypePlugins={[rehypeKatex]}
+        rehypePlugins={[rehypeRaw, rehypeKatex]}
         components={{
           a: ({ href, children, ...props }) => {
             const h = typeof href === "string" ? href : ""

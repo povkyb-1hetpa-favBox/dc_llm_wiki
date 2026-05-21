@@ -42,15 +42,7 @@ export type SerpApiEngine =
 export type SearXngCategory =
   | "general"
   | "news"
-  | "science"
-  | "it"
-  | "images"
-  | "videos"
-  | "files"
-  | "map"
-  | "music"
-  | "social media"
-  | string
+  | "science" | "it" | "images" | "videos" | "files" | "map" | "music" | "social media" | string
 
 export interface SearchProviderOverride {
   apiKey?: string
@@ -72,6 +64,9 @@ interface SearchApiConfig {
 
 interface EmbeddingConfig {
   enabled: boolean
+  provider: "remote" | "local"
+  localModel: "Xenova/all-MiniLM-L6-v2" | "Xenova/bge-small-zh-v1.5" | "Xenova/gte-tiny"
+  chunkingStrategy: "recursive" | "heading-atomic"
   endpoint: string // e.g. "http://127.0.0.1:1234/v1/embeddings"
   apiKey: string
   model: string // e.g. "text-embedding-qwen3-embedding-0.6b"
@@ -94,41 +89,6 @@ interface EmbeddingConfig {
   overlapChunkChars?: number
 }
 
-/**
- * Image-captioning settings (Phase 4 of the multimodal-images plan).
- *
- * Decoupled from `llmConfig` because vision-capable endpoints are
- * usually NOT the same model the user picks for analysis/generation:
- * - the analysis stage often goes to a strong text-only model (Claude
- *   Sonnet, DeepSeek, etc.) that doesn't speak vision at all;
- * - captioning is happy with a small local VL model (Qwen2.5-VL-7B,
- *   LLaVA-1.6) that costs near-zero per call.
- *
- * `enabled` is the master gate. When false the caption pipeline is
- * skipped entirely — `read_file`'s extracted images still appear
- * inline (with empty alt text) and the safety-net `## Embedded
- * Images` section still gets written, but we never touch the LLM.
- *
- * `useMainLlm`: when true (the default for first-time users we
- * onboard), captioning calls go through the same `llmConfig`
- * everything else uses. When false, the dedicated fields below are
- * sent through the same provider machinery — same `streamChat`,
- * same `getProviderConfig`, no duplicate code.
- *
- * `concurrency` bounds parallel caption requests during ingest.
- * 30-image PDFs with sequential captioning at ~10s/image (a Qwen3
- * thinking model on consumer GPU) take 5 minutes. At concurrency=4
- * that drops to ~75s. Going wider than 8 typically just queues
- * behind a single-GPU server's batch slot, so we cap the slider
- * UI at a tasteful max in the settings view.
- */
-/**
- * Global outbound HTTP proxy. When `enabled` and `url` is a valid
- * http(s) URL, the Rust setup hook reads this on app launch and
- * sets HTTP_PROXY / HTTPS_PROXY / NO_PROXY env vars before the
- * reqwest client used by tauri-plugin-http is constructed. Changes
- * apply on app restart only.
- */
 interface ProxyConfig {
   enabled: boolean
   url: string
@@ -142,20 +102,6 @@ interface ScheduledImportConfig {
   lastScan: number | null // 上次扫描时间戳
 }
 
-/**
- * Local HTTP API server config. Read by the Rust `api_server` module on
- * every request via `load_app_state` (5s cache). The Rust side is the
- * source of truth at request time; this struct is the persisted form
- * the UI edits.
- *
- *   - `enabled` gates all non-/health endpoints. Default `true` so an
- *     env-token-only setup keeps working after the toggle is added.
- *   - `allowUnauthenticated` lets local agents call the API without a
- *     token. It is explicit and default-off.
- *   - `token` is the bearer secret. Empty + auth required =
- *     every non-/health request returns 401. The env var
- *     `LLM_WIKI_API_TOKEN` overrides this field at the backend.
- */
 interface ApiConfig {
   enabled: boolean
   allowUnauthenticated: boolean
@@ -187,41 +133,10 @@ interface MultimodalConfig {
   concurrency: number
 }
 
-/**
- * Output language for LLM-generated content (wiki pages, chat responses, research).
- * "auto" = detect from user input / source document language.
- * Otherwise = force all LLM output to use the specified language.
- */
 type OutputLanguage =
   | "auto"
-  | "English"
-  | "Chinese"
-  | "Traditional Chinese"
-  | "Japanese"
-  | "Korean"
-  | "Vietnamese"
-  | "French"
-  | "German"
-  | "Spanish"
-  | "Portuguese"
-  | "Italian"
-  | "Russian"
-  | "Arabic"
-  | "Persian"
-  | "Hindi"
-  | "Turkish"
-  | "Dutch"
-  | "Polish"
-  | "Swedish"
-  | "Indonesian"
-  | "Thai"
-  | "Ukrainian"
+  | "English" | "Chinese" | "Traditional Chinese" | "Japanese" | "Korean" | "Vietnamese" | "French" | "German" | "Spanish" | "Portuguese" | "Italian" | "Russian" | "Arabic" | "Persian" | "Hindi" | "Turkish" | "Dutch" | "Polish" | "Swedish" | "Indonesian" | "Thai" | "Ukrainian"
 
-/**
- * Per-preset saved fields. Each entry survives turning the preset off
- * and coming back — users don't have to re-enter an API key when they
- * briefly switch to a different provider.
- */
 export interface ProviderOverride {
   apiKey?: string
   model?: string
@@ -253,13 +168,18 @@ interface WikiState {
    * one wiki-relative) still works.
    */
   pendingScrollImageSrc: string | null
+  /**
+   * One-shot scroll target for a specific page number (used for PDF/Source referencing).
+   */
+  pendingScrollPage: number | null
   chatExpanded: boolean
-  activeView: "wiki" | "sources" | "search" | "graph" | "lint" | "review" | "settings"
+  activeView: "wiki" | "sources" | "search" | "graph" | "lint" | "review" | "settings" | "bidding" | "dedup"
   llmConfig: LlmConfig
   /** Per-provider-preset stored overrides (API key, model, endpoint, …). */
   providerConfigs: ProviderConfigs
   /** Which preset is currently active. `null` = no LLM configured. */
   activePresetId: string | null
+  isBidding: boolean
   searchApiConfig: SearchApiConfig
   embeddingConfig: EmbeddingConfig
   multimodalConfig: MultimodalConfig
@@ -275,11 +195,13 @@ interface WikiState {
   setSelectedFile: (path: string | null) => void
   setFileContent: (content: string) => void
   setPendingScrollImageSrc: (src: string | null) => void
+  setPendingScrollPage: (page: number | null) => void
   setChatExpanded: (expanded: boolean) => void
   setActiveView: (view: WikiState["activeView"]) => void
   setLlmConfig: (config: LlmConfig) => void
   setProviderConfigs: (configs: ProviderConfigs) => void
   setActivePresetId: (id: string | null) => void
+  setIsBidding: (isBidding: boolean) => void
   setSearchApiConfig: (config: SearchApiConfig) => void
   setEmbeddingConfig: (config: EmbeddingConfig) => void
   setMultimodalConfig: (config: MultimodalConfig) => void
@@ -297,6 +219,7 @@ export const useWikiStore = create<WikiState>((set) => ({
   selectedFile: null,
   fileContent: "",
   pendingScrollImageSrc: null,
+  pendingScrollPage: null,
   chatExpanded: false,
   activeView: "wiki",
   llmConfig: {
@@ -310,6 +233,7 @@ export const useWikiStore = create<WikiState>((set) => ({
   },
   providerConfigs: {},
   activePresetId: null,
+  isBidding: false,
 
   dataVersion: 0,
 
@@ -318,8 +242,10 @@ export const useWikiStore = create<WikiState>((set) => ({
   setSelectedFile: (selectedFile) => set({ selectedFile }),
   setFileContent: (fileContent) => set({ fileContent }),
   setPendingScrollImageSrc: (pendingScrollImageSrc) => set({ pendingScrollImageSrc }),
+  setPendingScrollPage: (pendingScrollPage) => set({ pendingScrollPage }),
   setChatExpanded: (chatExpanded) => set({ chatExpanded }),
   setActiveView: (activeView) => set({ activeView }),
+  setIsBidding: (isBidding) => set({ isBidding }),
   searchApiConfig: {
     provider: "none",
     apiKey: "",
@@ -331,17 +257,15 @@ export const useWikiStore = create<WikiState>((set) => ({
 
   embeddingConfig: {
     enabled: false,
+    provider: "remote",
+    localModel: "Xenova/bge-small-zh-v1.5",
+    chunkingStrategy: "recursive",
     endpoint: "",
     apiKey: "",
     model: "",
   },
 
   multimodalConfig: {
-    // Off by default — captioning is a non-trivial token spend
-    // (one VLM call per extracted image), and silently turning it
-    // on for every user the first time they import a PDF would be
-    // a budget surprise. Users who want it flip the toggle in
-    // Settings → Image captioning.
     enabled: false,
     useMainLlm: true,
     provider: "custom",
@@ -370,11 +294,6 @@ export const useWikiStore = create<WikiState>((set) => ({
 
   sourceWatchConfig: DEFAULT_SOURCE_WATCH_CONFIG,
 
-  // Default `enabled: true` preserves the pre-toggle behavior: anyone
-  // who already had `LLM_WIKI_API_TOKEN` set or `apiConfig.token`
-  // hand-edited keeps their working API. New users land in
-  // "enabled + no token = 401 on every endpoint" — fail-closed by
-  // virtue of the token being empty.
   apiConfig: {
     enabled: true,
     allowUnauthenticated: false,

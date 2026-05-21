@@ -19,6 +19,9 @@ beforeEach(() => {
   mockInvoke.mockReset()
   useWikiStore.getState().setEmbeddingConfig({
     enabled: false,
+    provider: "remote",
+    localModel: "Xenova/bge-small-zh-v1.5",
+    chunkingStrategy: "recursive",
     endpoint: "",
     apiKey: "",
     model: "",

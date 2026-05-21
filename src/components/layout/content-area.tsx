@@ -7,6 +7,7 @@ import { LintView } from "@/components/lint/lint-view"
 import { SearchView } from "@/components/search/search-view"
 import { GraphView } from "@/components/graph/graph-view"
 import { BiddingDashboard } from "@/components/project/bidding-dashboard"
+import { DedupView } from "@/components/project/dedup-view"
 
 export function ContentArea() {
   const activeView = useWikiStore((s) => s.activeView)
@@ -26,6 +27,8 @@ export function ContentArea() {
       return <GraphView />
     case "bidding":
       return <BiddingDashboard />
+    case "dedup":
+      return <DedupView />
     default:
       return <ChatPanel />
   }
